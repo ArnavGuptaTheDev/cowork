@@ -85,6 +85,11 @@ export default function ProjectIsland() {
         </div>
         <ProgressRing done={d.progress.done} total={d.progress.total} />
       </header>
+      {d.minutesTotal > 0 && (
+        <p class="faint mb-4">
+          <Icon name="timer" class="inline-icon" /> {d.minutesTotal < 60 ? `${d.minutesTotal} min` : `${Math.floor(d.minutesTotal / 60)}h ${d.minutesTotal % 60}m`} tracked
+        </p>
+      )}
 
       {canAdd && readOnly && (
         <div class="row">

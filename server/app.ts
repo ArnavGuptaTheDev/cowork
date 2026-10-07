@@ -5,6 +5,9 @@ import { clock, requireCsrf, requireSession, securityHeaders } from './middlewar
 import { adminRoutes } from './routes/admin';
 import { interactRoutes } from './routes/interact';
 import { structureRoutes } from './routes/structure';
+import { calendarRoutes } from './routes/calendar';
+import { exportRoutes } from './routes/export';
+import { timeRoutes } from './routes/time';
 import { authRoutes } from './routes/auth';
 import { meRoutes } from './routes/me';
 import { photoRoutes } from './routes/photos';
@@ -27,6 +30,9 @@ export function createApp() {
   authed.route('/', todoRoutes);
   authed.route('/', interactRoutes);
   authed.route('/', structureRoutes);
+  authed.route('/', timeRoutes);
+  authed.route('/', calendarRoutes);
+  authed.route('/', exportRoutes);
   authed.route('/', suggestionRoutes);
   authed.route('/', photoRoutes);
   authed.route('/', pushRoutes);

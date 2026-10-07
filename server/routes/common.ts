@@ -1,6 +1,7 @@
 import { Hono, type Context } from 'hono';
 import type { AppEnv } from '../env';
 import { readJson, parse } from '../http';
+import { syncTodo } from '../services/gcal';
 import type { z } from 'zod';
 
 /** A plain router. Session + CSRF middleware are applied once, where routers are mounted (server/app.ts). */
@@ -14,6 +15,12 @@ export async function body<S extends z.ZodType>(c: Context<AppEnv>, schema: S): 
 
 export function query<S extends z.ZodType>(c: Context<AppEnv>, schema: S): z.output<S> {
   return parse(schema, c.req.query());
+}
+
+/** Mirrors a todo into connected Google Calendars after the response (no-op when nobody is connected). */
+export function syncCalendar(c: Context<AppEnv>, todoId: string): void {
+  if (!c.env.CALENDAR_TOKEN_KEY) return;
+  defer(c, syncTodo(c.env, todoId));
 }
 
 /** Runs work after the response (notifications). Falls back to fire-and-forget outside Workers (tests). */

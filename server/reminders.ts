@@ -4,6 +4,7 @@ import type { UserRow } from './db';
 import { publicUser } from './db';
 import { sendPushToUser, type PushEnv } from './services/notify';
 import { pausedOn } from './services/pause';
+import { reconcileCalendars, type GcalEnv } from './services/gcal';
 import { materializeUser } from './services/todos';
 import { todayView } from './services/views';
 import { localDate, localTime } from '../shared/time';
@@ -141,7 +142,7 @@ async function sendWrapups(env: PushEnv, users: UserRow[], now: number, fetchFn:
   return sent;
 }
 
-export async function runReminders(env: PushEnv, now: number, fetchFn: typeof fetch = fetch) {
+export async function runReminders(env: PushEnv & Partial<GcalEnv>, now: number, fetchFn: typeof fetch = fetch) {
   const { results: users } = await env.DB.prepare('SELECT * FROM users').all<UserRow>();
   for (const u of users) {
     try {
@@ -153,5 +154,13 @@ export async function runReminders(env: PushEnv, now: number, fetchFn: typeof fe
   const paused = await pausedToday(env, users, now);
   const reminders = await sendDueReminders(env, now, fetchFn, paused);
   const wrapups = await sendWrapups(env, users, now, fetchFn, paused);
-  return { users: users.length, due: reminders.due, sent: reminders.sent, wrapups };
+  // Safety net for Google Calendar: drop partner copies of todos that are no longer shared with them.
+  let calendarCleaned = 0;
+  if (env.CALENDAR_TOKEN_KEY && env.GOOGLE_CLIENT_ID) {
+    calendarCleaned = await reconcileCalendars(env as GcalEnv, fetchFn).catch((e) => {
+      console.warn('calendar reconcile', e);
+      return 0;
+    });
+  }
+  return { users: users.length, due: reminders.due, sent: reminders.sent, wrapups, calendarCleaned };
 }

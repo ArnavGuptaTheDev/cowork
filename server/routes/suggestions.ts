@@ -5,7 +5,7 @@ import { badRequest, forbidden, notFound, parse } from '../http';
 import { getPartner, getUser } from '../services/access';
 import { sendPushToUser } from '../services/notify';
 import { createTodo } from '../services/todos';
-import { body, defer, router } from './common';
+import { body, defer, router, syncCalendar } from './common';
 
 export const suggestionRoutes = router();
 
@@ -142,6 +142,7 @@ suggestionRoutes.post('/suggestions/:id/accept', async (c) => {
     // The suggester's photos travel with the todo; it now belongs to the recipient.
     c.env.DB.prepare('UPDATE photos SET todo_id = ?, owner_id = ? WHERE suggestion_id = ?').bind(todoId, user.id, s.id),
   ]);
+  syncCalendar(c, todoId);
   defer(
     c,
     sendPushToUser(c.env, s.from_user_id, {

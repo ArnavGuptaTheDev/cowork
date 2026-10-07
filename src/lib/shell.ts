@@ -28,5 +28,37 @@ async function hydrateHeader() {
   }
 }
 
+let tick: ReturnType<typeof setInterval> | undefined;
+
+/** A small live "⏱ Todo 12:34" pill while a timer runs (the start time comes from the server). */
+async function timerPill(refresh = false) {
+  const pill = document.getElementById('timer-pill') as HTMLAnchorElement | null;
+  if (!pill) return;
+  const me = await getMe(refresh);
+  clearInterval(tick);
+  const t = me.runningTimer;
+  if (!t) {
+    pill.hidden = true;
+    return;
+  }
+  // Server and device clocks can differ; measure elapsed time on the server's clock.
+  const skew = me.serverNow - Date.now();
+  const render = () => {
+    const s = Math.max(0, Math.floor((Date.now() + skew - t.startedAt) / 1000));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const clock = `${h ? `${h}:` : ''}${String(m).padStart(h ? 2 : 1, '0')}:${String(s % 60).padStart(2, '0')}`;
+    pill.textContent = `⏱ ${clock}`;
+    pill.title = `Timer running: ${t.todoTitle}`;
+    pill.setAttribute('aria-label', `Timer running on ${t.todoTitle}, ${clock}`);
+  };
+  pill.href = `/today?todo=${t.todoId}`;
+  pill.hidden = false;
+  render();
+  tick = setInterval(render, 1000);
+}
+
 hydrateHeader().catch(() => undefined);
+timerPill().catch(() => undefined);
+window.addEventListener('cowork:timer', () => void timerPill(true).catch(() => undefined));
 void registerServiceWorker();

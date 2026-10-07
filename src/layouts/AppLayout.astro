@@ -36,6 +36,7 @@ const svg = (name: keyof typeof icons) =>
       {copy.appName}
     </a>
     <div class="header-actions">
+      <a class="timer-pill" id="timer-pill" href="/today" hidden></a>
       <a class="icon-btn" href="/suggestions" id="nav-suggestions" aria-label="Suggestions">
         <Fragment set:html={svg('inbox')} />
         <span class="badge" id="suggestions-badge" hidden></span>

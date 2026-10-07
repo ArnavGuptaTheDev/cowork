@@ -12,6 +12,8 @@ export interface Env {
   SUPER_ADMIN_EMAIL: string;
   /** Public origin, e.g. https://cowork.arnavg.me. Used for push links and the VAPID subject. */
   APP_ORIGIN?: string;
+  /** base64url 32-byte AES key that encrypts Google Calendar refresh tokens at rest. Optional: calendar sync is off without it. */
+  CALENDAR_TOKEN_KEY?: string;
   /** Local development only: enables /api/auth/dev-login on localhost. Never set this in production. */
   DEV_LOGIN?: string;
 }

@@ -1,6 +1,6 @@
 // Weekly review: completion rate, by weekday, by category, best/worst day, streaks, time tracked.
 // Counting is done in SQL (GROUP BY); only the grouped rows come back to the Worker.
-import { addDays, dateRange, startOfWeek, weekday } from '../../shared/time';
+import { addDays, dateRange, localDate, startOfWeek, weekday, zonedToUtc } from '../../shared/time';
 import type { UserRow } from '../db';
 import { privacyFilter } from './access';
 import { STATUS_SQL } from './pause';
@@ -91,9 +91,32 @@ export function summarizeWeek(rows: ReviewRow[], weekStart: string): Omit<Review
   };
 }
 
-/** Minutes tracked per day of the week (Mon..Sun). Time tracking arrives in phase 3. */
-async function minutesTracked(_db: D1Database, _user: UserRow, _asPartner: boolean, _weekStart: string): Promise<number[]> {
-  return Array.from({ length: 7 }, () => 0);
+/**
+ * Minutes tracked per day of the week (Mon..Sun), summed in SQL per 15-minute bucket (every time zone offset is a
+ * multiple of 15 minutes) and then placed on the
+ * user's local day. Time on private todos is left out of the partner's view.
+ */
+async function minutesTracked(db: D1Database, user: UserRow, asPartner: boolean, weekStart: string): Promise<number[]> {
+  const days = dateRange(weekStart, addDays(weekStart, 6));
+  const from = zonedToUtc(weekStart, '00:00', user.timezone);
+  const to = zonedToUtc(addDays(weekStart, 7), '00:00', user.timezone);
+  const { results } = await db
+    .prepare(
+      `SELECT (te.started_at / 900000) AS bucket, SUM(te.ended_at - te.started_at) AS ms
+         FROM time_entries te
+         JOIN todos t ON t.id = te.todo_id
+         LEFT JOIN projects p ON p.id = t.project_id
+        WHERE te.user_id = ? AND te.ended_at IS NOT NULL AND te.started_at >= ? AND te.started_at < ? ${privacyFilter(asPartner)}
+        GROUP BY bucket`,
+    )
+    .bind(user.id, from, to)
+    .all<{ bucket: number; ms: number }>();
+  const out = days.map(() => 0);
+  for (const r of results) {
+    const idx = days.indexOf(localDate(r.bucket * 900000, user.timezone));
+    if (idx >= 0) out[idx]! += Math.round(r.ms / 60_000);
+  }
+  return out;
 }
 
 /** A user's week as `viewer` sees it (partners don't see private todos in the numbers). */

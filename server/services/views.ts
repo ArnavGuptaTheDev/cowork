@@ -461,6 +461,8 @@ export interface ProjectTodo {
   status: InstanceStatus | null;
   stats: HabitStats | null;
   photoCount: number;
+  /** Minutes tracked on it (by you, and your partner's on todos you can see). */
+  minutes: number;
 }
 
 /** A project as the viewer sees it: their own, their partner's (non-private), or a shared one. */
@@ -479,13 +481,15 @@ export async function projectView(db: D1Database, viewer: UserRow, projectId: st
       `SELECT t.*,
           (SELECT i.id FROM todo_instances i WHERE i.todo_id = t.id ORDER BY i.date DESC LIMIT 1) AS instance_id,
           (SELECT ${STATUS_SQL} FROM todo_instances i WHERE i.todo_id = t.id ORDER BY i.date DESC LIMIT 1) AS status,
-          (SELECT COUNT(*) FROM photos ph WHERE ph.todo_id = t.id) AS photo_count
+          (SELECT COUNT(*) FROM photos ph WHERE ph.todo_id = t.id) AS photo_count,
+          (SELECT COALESCE(SUM(te.ended_at - te.started_at), 0) FROM time_entries te
+            WHERE te.todo_id = t.id AND te.ended_at IS NOT NULL AND (te.user_id = ? OR te.user_id = ?)) AS tracked_ms
          FROM todos t
         WHERE t.project_id = ? AND ${VISIBLE_TODO}
         ORDER BY t.start_date, t.created_at`,
     )
-    .bind(projectId, viewer.id)
-    .all<TodoRow & { instance_id: string | null; status: InstanceStatus | null; photo_count: number }>();
+    .bind(viewer.id, partner?.id ?? '', projectId, viewer.id)
+    .all<TodoRow & { instance_id: string | null; status: InstanceStatus | null; photo_count: number; tracked_ms: number }>();
   const recurringIds = results.filter((t) => t.recurrence !== 'none').map((t) => t.id);
   const histories = await loadHistories(db, recurringIds, addDays(today, -400));
   const todos: ProjectTodo[] = results.map((t) => {
@@ -506,6 +510,7 @@ export async function projectView(db: D1Database, viewer: UserRow, projectId: st
       status: recurring ? null : t.status,
       stats: recurring ? habitStats(histories.get(t.id) ?? [], today) : null,
       photoCount: t.photo_count,
+      minutes: Math.round(t.tracked_ms / 60_000),
     };
   });
   const oneOff = todos.filter((t) => t.stats === null);
@@ -516,6 +521,7 @@ export async function projectView(db: D1Database, viewer: UserRow, projectId: st
     canManage: isOwner,
     canAdd: isOwner || shared,
     progress: { done: oneOff.filter((t) => t.status === 'done').length, total: oneOff.length },
+    minutesTotal: todos.reduce((s, t) => s + t.minutes, 0),
     todos,
   };
 }

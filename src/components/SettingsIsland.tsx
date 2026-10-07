@@ -70,6 +70,8 @@ export default function SettingsIsland() {
       <MoreLinks />
       <Wrapup me={me} />
       <Pause me={me} />
+      <Calendar />
+      <ExportData />
       <Notifications me={me} />
       <Pairing me={me} onChanged={state.reload} />
       <section class="section card">
@@ -166,6 +168,108 @@ function Profile({ me, onSaved }: { me: Me; onSaved: () => void }) {
         </button>
       </div>
     </form>
+  );
+}
+
+interface CalStatus {
+  configured: boolean;
+  connected: boolean;
+  lastSyncAt: number | null;
+  lastError: string | null;
+  events: number;
+}
+
+const CAL_MESSAGES: Record<string, [string, 'info' | 'error']> = {
+  connected: ['Google Calendar connected. Syncing your todos…', 'info'],
+  cancelled: ['Calendar connection cancelled', 'error'],
+  expired: ['That attempt expired. Please try again', 'error'],
+  scope: ['Calendar access wasn’t granted. Tick the calendar box on Google’s screen', 'error'],
+  account: ['Use the same Google account you sign in with', 'error'],
+  google: ['Google didn’t accept the request. Please try again', 'error'],
+  unavailable: ['Calendar sync isn’t set up on this server yet', 'error'],
+};
+
+function Calendar() {
+  const [s, setS] = useState<CalStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = () => get<CalStatus>('/api/calendar/status').then(setS, () => undefined);
+  useEffect(() => {
+    void load();
+    const flag = new URLSearchParams(location.search).get('calendar');
+    if (flag && CAL_MESSAGES[flag]) {
+      toast(...CAL_MESSAGES[flag]!);
+      history.replaceState(null, '', '/settings#calendar');
+    }
+  }, []);
+  const run = async (fn: () => Promise<unknown>, msg: string) => {
+    setBusy(true);
+    try {
+      await fn();
+      toast(msg);
+      await load();
+    } catch (e) {
+      toast(errorMessage(e), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!s) return null;
+  return (
+    <section class="section card" id="calendar">
+      <h2 class="section-title">Google Calendar</h2>
+      <p class="faint">
+        One-way sync: todos with a due time appear in a separate “CoWork” calendar in your Google account. Private todos only ever go to your own calendar.
+      </p>
+      {!s.configured ? (
+        <p class="muted mt-2">Not available on this server yet.</p>
+      ) : s.connected ? (
+        <>
+          <p class="mt-2">
+            <span class="chip sage">Connected</span> {s.events} events
+            {s.lastSyncAt ? <span class="faint"> · synced {new Date(s.lastSyncAt).toLocaleString()}</span> : null}
+          </p>
+          {s.lastError && <p class="error-text mt-2">{s.lastError}</p>}
+          <div class="row mt-2">
+            <button type="button" class="btn ghost" disabled={busy} onClick={() => run(() => send('POST', '/api/calendar/sync'), 'Synced')}>
+              <Icon name="sync" /> Resync
+            </button>
+            <span class="spacer" />
+            <button
+              type="button"
+              class="btn danger"
+              disabled={busy}
+              onClick={() => confirm('Disconnect Google Calendar? The CoWork calendar is deleted and access is revoked.') && run(() => send('POST', '/api/calendar/disconnect'), 'Disconnected')}
+            >
+              Disconnect
+            </button>
+          </div>
+        </>
+      ) : (
+        <a class="btn ghost mt-2" href="/api/calendar/connect">
+          <Icon name="calendar" /> Connect Google Calendar
+        </a>
+      )}
+    </section>
+  );
+}
+
+function ExportData() {
+  return (
+    <section class="section card">
+      <h2 class="section-title">Your data</h2>
+      <p class="faint">Everything of yours, plus items shared with you. Your partner's own data isn't included.</p>
+      <div class="row mt-2">
+        <a class="btn ghost" href="/api/export/json" download>
+          <Icon name="download" /> All data (JSON)
+        </a>
+        <a class="btn ghost" href="/api/export/todos.csv" download>
+          Todos (CSV)
+        </a>
+        <a class="btn ghost" href="/api/export/completions.csv" download>
+          Completions (CSV)
+        </a>
+      </div>
+    </section>
   );
 }
 

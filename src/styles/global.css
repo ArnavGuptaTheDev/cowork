@@ -2149,3 +2149,32 @@ dialog.sheet::backdrop {
 .todo[draggable='true'] {
   cursor: grab;
 }
+
+/* ---------- Phase 3: integrations ---------- */
+.timer-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  background: var(--ink);
+  color: var(--paper);
+  font-size: var(--t-s);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+}
+.time-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: flex-end;
+}
+.time-form .field {
+  margin: 0;
+  flex: 1 1 180px;
+}
+.time-entries li {
+  padding: 4px 0;
+  font-size: var(--t-s);
+}

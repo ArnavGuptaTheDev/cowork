@@ -8,6 +8,7 @@ import { getPartner, getUser } from '../services/access';
 import { sendPushToUser } from '../services/notify';
 import { activePause } from '../services/pause';
 import { recomputeReminders } from '../services/todos';
+import { reconcileCalendars } from '../services/gcal';
 import { unpair } from '../services/users';
 import { body, defer, router } from './common';
 
@@ -36,6 +37,12 @@ meRoutes.get('/me', async (c) => {
     pendingSuggestions: pending?.n ?? 0,
     wrapupTime: user.wrapup_time,
     serverNow: c.get('now'),
+    runningTimer: await c.env.DB.prepare(
+      `SELECT te.id, te.todo_id AS todoId, te.started_at AS startedAt, t.title AS todoTitle
+         FROM time_entries te JOIN todos t ON t.id = te.todo_id WHERE te.user_id = ? AND te.ended_at IS NULL`,
+    )
+      .bind(user.id)
+      .first(),
   });
 });
 
@@ -131,5 +138,6 @@ meRoutes.post('/pairing/accept', async (c) => {
 
 meRoutes.delete('/pairing', async (c) => {
   await unpair(c.env.DB, c.get('user'), c.get('now'));
+  if (c.env.CALENDAR_TOKEN_KEY) defer(c, reconcileCalendars(c.env));
   return c.json({ ok: true });
 });

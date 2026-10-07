@@ -12,6 +12,11 @@ SESSION_SECRET=replace-with-at-least-32-random-characters
 VAPID_PUBLIC_KEY=replace-with-vapid-public-key
 VAPID_PRIVATE_KEY=replace-with-vapid-private-key
 
+# Google Calendar sync (optional). 32 random bytes, base64url: encrypts calendar refresh tokens at rest.
+# Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+# Leave it unset to turn calendar sync off.
+CALENDAR_TOKEN_KEY=replace-with-32-random-bytes-base64url
+
 # The only email that can sign in before anyone is invited.
 SUPER_ADMIN_EMAIL=you@example.com
 

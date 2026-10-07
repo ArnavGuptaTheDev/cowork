@@ -217,3 +217,16 @@ export const photoFeedQuerySchema = z.object({
   todoId: idSchema.optional(),
   who: z.enum(['all', 'me', 'partner']).default('all'),
 });
+
+// --- Phase 3 ---
+
+const msSchema = z.number().int().min(0).max(8_640_000_000_000);
+export const timeEntryCreateSchema = z
+  .object({ startedAt: msSchema, endedAt: msSchema, note: z.string().trim().max(300).default('') })
+  .strict()
+  .refine((v) => v.endedAt >= v.startedAt, { message: 'An entry must end after it starts', path: ['endedAt'] })
+  .refine((v) => v.endedAt - v.startedAt <= 24 * 3600_000, { message: 'Entries are limited to 24 hours', path: ['endedAt'] });
+export const timeEntryUpdateSchema = z
+  .object({ startedAt: msSchema, endedAt: msSchema, note: z.string().trim().max(300) })
+  .partial()
+  .strict();

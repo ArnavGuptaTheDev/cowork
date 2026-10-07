@@ -41,7 +41,8 @@ import {
   recentInstances,
   todayView,
 } from '../services/views';
-import { body, defer, query, router } from './common';
+import { deleteMappedEvents, mappingsForTodo } from '../services/gcal';
+import { body, defer, query, router, syncCalendar } from './common';
 
 export const todoRoutes = router();
 
@@ -133,6 +134,13 @@ todoRoutes.patch('/projects/:id', async (c) => {
     // Unsharing: the partner's todos in it move out (they keep them, without the project).
     await c.env.DB.prepare('UPDATE todos SET project_id = NULL WHERE project_id = ? AND user_id != ?').bind(id, user.id).run();
   }
+  if (isShared !== p.is_shared || isPrivate !== p.is_private) {
+    // Who may see these todos changed: update calendar copies.
+    const { results: affected } = await c.env.DB.prepare('SELECT id FROM todos WHERE project_id = ? AND due_time IS NOT NULL LIMIT 200')
+      .bind(id)
+      .all<{ id: string }>();
+    for (const t of affected) syncCalendar(c, t.id);
+  }
   const row = await c.env.DB.prepare('SELECT * FROM projects WHERE id = ?').bind(id).first<ProjectRow>();
   return c.json({ project: projectDto(row!) });
 });
@@ -150,6 +158,7 @@ todoRoutes.post('/todos', async (c) => {
   const input = await body(c, todoCreateSchema);
   const id = await createTodo(c.env, c.get('user'), input, c.get('now'));
   const row = await getOwnTodo(c.env.DB, c.get('user').id, id);
+  syncCalendar(c, id);
   return c.json({ todo: todoDto(row) }, 201);
 });
 
@@ -186,11 +195,16 @@ todoRoutes.patch('/todos/:id', async (c) => {
   const id = idParam(c.req.param('id'));
   const input = await body(c, todoUpdateSchema);
   const row = await updateTodo(c.env, c.get('user'), id, input, c.get('now'));
+  syncCalendar(c, id);
   return c.json({ todo: todoDto(row) });
 });
 
 todoRoutes.delete('/todos/:id', async (c) => {
-  await deleteTodo(c.env, c.get('user').id, idParam(c.req.param('id')));
+  const id = idParam(c.req.param('id'));
+  // Capture calendar events before the rows cascade away, then remove them from Google.
+  const mappings = c.env.CALENDAR_TOKEN_KEY ? await mappingsForTodo(c.env.DB, id) : [];
+  await deleteTodo(c.env, c.get('user').id, id);
+  if (mappings.length) defer(c, deleteMappedEvents(c.env, mappings));
   return c.json({ ok: true });
 });
 
@@ -215,17 +229,20 @@ todoRoutes.post('/instances/:id/complete', async (c) => {
   const { note } = await body(c, completeSchema);
   const { inst } = await completeInstance(c.env, user, idParam(c.req.param('id')), note, now);
   defer(c, cheerIfAllDone(c.env, user, now));
+  syncCalendar(c, inst.todo_id);
   return c.json({ instance: { id: inst.id, status: inst.status, completedAt: inst.completed_at, completedBy: inst.completed_by } });
 });
 
 todoRoutes.post('/instances/:id/uncomplete', async (c) => {
   const { inst } = await uncompleteInstance(c.env, c.get('user'), idParam(c.req.param('id')), c.get('now'));
+  syncCalendar(c, inst.todo_id);
   return c.json({ instance: { id: inst.id, status: inst.status, completedAt: null, completedBy: null } });
 });
 
 todoRoutes.post('/instances/:id/reschedule', async (c) => {
   const { date } = await body(c, rescheduleSchema);
   const { inst } = await rescheduleInstance(c.env, c.get('user'), idParam(c.req.param('id')), date, c.get('now'));
+  syncCalendar(c, inst.todo_id);
   return c.json({ instance: { id: inst.id, date: inst.date } });
 });
 
@@ -239,6 +256,7 @@ todoRoutes.post('/instances/:id/tomorrow', async (c) => {
   if (!access) throw notFound('Todo not found');
   const tomorrow = addDays(localDate(now, access.owner.timezone), 1);
   const r = await rescheduleInstance(c.env, user, id, tomorrow, now);
+  syncCalendar(c, r.inst.todo_id);
   return c.json({ instance: { id: r.inst.id, date: r.inst.date } });
 });
 

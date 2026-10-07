@@ -1,6 +1,24 @@
 # CoWork
 
-A project, todo and habit app for couples. Each partner keeps their own projects, todos and habits, sees the other's progress (read-only), and can suggest todos to each other. Built mobile-first as an installable PWA.
+A project, todo and habit app for couples. Each partner keeps their own projects, todos and habits, sees the other's progress, and can share todos and projects, react, nudge, comment and suggest todos. It's built mobile-first as an installable PWA, and it works on desktop too.
+
+## Features
+
+- **Todos.** Each todo has a title, notes, project, category (personal, work or habit), due and reminder times, and photos. They can repeat daily, weekly (on chosen weekdays) or monthly.
+  - **Today:** missed repeating occurrences are marked missed, and unfinished one-offs carry over.
+  - **Planning:** Week and Month calendars with drag-to-reschedule, and projects with a progress bar.
+  - **Habits:** streaks and completion rates.
+- **Partner.**
+  - **Basics:** pairing by code or link, a read-only view of each other's day, private todos and private projects, and suggestions with accept/deny.
+  - **Sharing:** shared todos and shared projects, with an assignee of me, partner or either. Either of you can complete them, and the app records who did.
+  - **Interaction:** emoji reactions on completions, nudges (one per todo every 3 hours) and comment threads.
+  - **Together:** joint habits that only count when both of you do them, and shared weekly goals.
+- **Quick add.** Type "gym mon wed fri 7am #health" or "book dentist for partner tomorrow": a preview shows what it understood, and "More options" opens the full form.
+- **Structure.** Checklists (subtasks) whose ticks reset for each occurrence, and templates of todos you can apply in one tap and share.
+- **Insight.** A weekly review with completion rate, by-weekday and by-category charts, best and worst day, streaks and time tracked, for both of you side by side. A photo timeline of every completion photo.
+- **Time.** Start and stop a timer on a todo (one at a time; it survives reloads), edit entries by hand, and see totals per todo, per project and in the review.
+- **Reminders.** Web Push with Done / Snooze 1h / Tomorrow buttons, an evening wrap-up push (21:00 by default) that opens a wrap-up screen for leftovers, and pause mode for holidays (no reminders or nudges, streaks freeze).
+- **Integrations.** Optional one-way sync to a "CoWork" Google Calendar, and export of your data as JSON or CSV.
 
 **Stack:** Astro (static, TypeScript strict) + Preact islands · one Cloudflare Worker (static assets + Hono API + cron) · D1 · R2 · Web Push (VAPID) · Google OAuth (PKCE) · Vitest.
 
@@ -88,6 +106,14 @@ Tests run every file in `migrations/` in order. The deploy command applies new m
    - `http://localhost:4321/api/auth/google/callback`
 
    Use scopes `openid email profile`. While the app is in "Testing", add both Google accounts as test users.
+
+   **For Google Calendar sync (optional)**, in the same Google Cloud project:
+   - APIs & Services → Library → enable the **Google Calendar API**.
+   - OAuth consent screen → Data access / Scopes → add `https://www.googleapis.com/auth/calendar.app.created`. It's a sensitive scope: fine while the app is in Testing with your two accounts as test users. Publishing it to everyone would need Google's verification.
+   - Add these redirect URIs to the same OAuth client:
+     - `https://cowork.arnavg.me/api/calendar/callback`
+     - `http://localhost:8787/api/calendar/callback`
+     - `http://localhost:4321/api/calendar/callback`
 3. **VAPID keys:** run `npm run vapid` and keep the two values for step 5.
 4. **Create the Worker from GitHub:** dash → Workers & Pages → *Create* → *Import a repository* → `ArnavGuptaTheDev/cowork`.
    - Project name: `cowork` (it must match `name` in `wrangler.toml`).
@@ -103,6 +129,7 @@ Tests run every file in `migrations/` in order. The deploy command applies new m
    - `VAPID_PUBLIC_KEY`
    - `VAPID_PRIVATE_KEY`
    - `SUPER_ADMIN_EMAIL`
+   - `CALENDAR_TOKEN_KEY` (optional; turns on Google Calendar sync). Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`. It encrypts calendar refresh tokens at rest. Changing it later disconnects everyone's calendar, and they reconnect from Settings.
 
    Or from the CLI: `npx wrangler secret put <NAME>`. Never set `DEV_LOGIN` in production.
 6. **Custom domain:** Worker → Settings → *Domains & Routes* → *Add* → *Custom domain* → `cowork.arnavg.me`.
@@ -114,7 +141,8 @@ Then sign in at https://cowork.arnavg.me with the `SUPER_ADMIN_EMAIL` account, o
 - **Sign-in:** Google authorization-code flow with PKCE, plus `state` and `nonce` in an HMAC-signed, HttpOnly, 10-minute cookie. The ID token is verified against Google's JWKS (RS256, issuer, audience, expiry, nonce), and `email_verified` is required. Only `SUPER_ADMIN_EMAIL` or an invited email can get an account. Anyone else is sent to `/not-invited` and nothing is written.
 - **Sessions:** a 256-bit random token in an `HttpOnly; Secure; SameSite=Lax` cookie. D1 stores only `HMAC-SHA256(SESSION_SECRET, token)`. Sessions expire after 30 days and slide while in use. Logout deletes the row. Revoking an invite deletes all of that user's sessions.
 - **CSRF:** every mutating request needs the per-session `X-CSRF-Token` (from `/api/me`), and a cross-origin `Origin` header is rejected.
-- **Authorisation:** every `/api` route requires a session. Writes are owner-only. Reads of another user require a mutual partnership and exclude private todos and private projects. Photos follow the same rules, and suggestion photos are visible only to the suggester and the recipient. The rules live in `shared/authz.ts` and are tested both as pure functions and through the real routes.
+- **Calendar tokens:** Google refresh tokens are AES-256-GCM encrypted with `CALENDAR_TOKEN_KEY`, bound to the user id. They're never stored in plaintext and never sent to the browser. Disconnecting revokes the token at Google and deletes it.
+- **Authorisation:** every `/api` route requires a session. Writes are owner-only, except that both partners may edit a shared todo. Reads of another user require a mutual partnership and exclude private todos and private projects. Photos follow the same rules, and suggestion photos are visible only to the suggester and the recipient. The rules live in `shared/authz.ts` and are tested both as pure functions and through the real routes.
 - **Input:** all bodies and queries are validated with Zod (`shared/schemas.ts`, strict objects). Uploaded photos are type-checked by magic bytes, capped at 4 MB, and served with `Content-Security-Policy: sandbox` and `nosniff`.
 - **Pages:** Astro's built-in CSP hashes every script and style. The repo contains no secrets; see `.dev.vars.example`.
 
@@ -193,3 +221,26 @@ Then sign in at https://cowork.arnavg.me with the `SUPER_ADMIN_EMAIL` account, o
   - **Tap:** on phones, "Move it" in the todo sheet does the same (Tomorrow / Next week / pick a date).
   - **Repeating todos** follow their rule and can't be dragged.
 - **Photo timeline** shows completion photos only (proof or progress), newest first, 24 per page. It pages with a `(created_at, id)` cursor and applies the same rules as `/api/photos/:id`.
+
+### Integrations (phase 3)
+
+- **Calendar scope.** The brief asked for `calendar.events`, but that scope can't create a calendar, and a dedicated "CoWork" calendar is the safer design. CoWork asks for `calendar.app.created` instead, which lets the app create its own calendars and manage only those; it can't read or touch any of your other calendars.
+- **Incremental authorisation.** Calendar access is a separate consent (`/api/calendar/connect`) with `include_granted_scopes`, `access_type=offline` and its own PKCE, state and nonce, so sign-in and existing sessions are unaffected. The callback checks that the Google account is the one you sign in with and that the scope was actually granted.
+- **What syncs.**
+  - **Which todos:** only those with a due time, as 30-minute events in the owner's time zone. Repeating todos become recurring events, and "monthly on the 31st" maps to the month's last day, as in the app.
+  - **Completion:** a done one-off shows as "✓ Title". Repeating occurrences don't change the event.
+  - **Reminders:** the event has no calendar reminders, because CoWork sends its own.
+- **Whose calendar.** A todo always goes to its owner's calendar, and shared todos go to the partner's too if they've connected. Private todos, and todos in private projects, only ever go to the owner's calendar.
+  - **When it syncs:** after every change (create, edit, complete, move, delete, share or privacy change), in the background.
+  - **Clean-up:** the cron removes any copy someone may no longer see (unshared, made private, unpaired).
+  - **No duplicates:** a claimed mapping row stops two concurrent syncs from both creating an event.
+- **Disconnect** deletes the CoWork calendar, revokes the refresh token at Google, and deletes the link and event mappings.
+- **Time tracking.**
+  - **One timer:** a partial unique index (`ended_at IS NULL`) allows one running timer per user. Starting another stops the first, and stopping caps a forgotten timer at 24 hours.
+  - **Manual entries:** at most 24 hours long and can't end in the future.
+  - **Visibility:** your partner sees time on todos they can see, never on private ones.
+  - **Review:** time is bucketed in SQL into 15-minute UTC buckets (every time-zone offset is a multiple of 15 minutes) and placed on your local days.
+- **Export.**
+  - **JSON:** everything of yours, plus your partner's shared todos and their history, and comments on shared items. Your partner's own data is left out.
+  - **CSV:** the two files cover the same todos (`todos.csv`) and their occurrences (`completions.csv`). Cells that start with `=`, `+`, `-` or `@` get a leading `'` so spreadsheets don't run them as formulas.
+- **Offline support was deliberately left out** at your request. The service worker still caches the app shell and shows an offline page; queued writes and conflict handling are not implemented.

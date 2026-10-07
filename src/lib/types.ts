@@ -27,6 +27,7 @@ export interface Me {
   pendingSuggestions: number;
   wrapupTime: string | null;
   serverNow: number;
+  runningTimer: { id: string; todoId: string; startedAt: number; todoTitle: string } | null;
 }
 
 export interface ProjectRef {
@@ -113,6 +114,7 @@ export interface ProjectTodo {
   status: InstanceStatus | null;
   stats: HabitStats | null;
   photoCount: number;
+  minutes: number;
 }
 
 export interface ProjectDetail {
@@ -121,6 +123,7 @@ export interface ProjectDetail {
   canManage: boolean;
   canAdd: boolean;
   progress: { done: number; total: number };
+  minutesTotal: number;
   todos: ProjectTodo[];
 }
 

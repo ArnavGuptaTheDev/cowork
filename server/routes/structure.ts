@@ -24,7 +24,7 @@ import { editableTodo, getPartner, todoAccess } from '../services/access';
 import { loadPauses } from '../services/pause';
 import { reviewFor } from '../services/review';
 import { createTodo } from '../services/todos';
-import { body, query, router } from './common';
+import { body, query, router, syncCalendar } from './common';
 
 export const structureRoutes = router();
 
@@ -278,6 +278,7 @@ structureRoutes.post('/templates/:id/apply', async (c) => {
       now,
     );
     created.push(todoId);
+    syncCalendar(c, todoId);
     if (item.subtasks.length) {
       await runBatch(
         c.env.DB,

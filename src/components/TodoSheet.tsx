@@ -10,6 +10,7 @@ import type { DayItem, Photo, TodoDetail } from '../lib/types';
 import { CommentThread } from './CommentThread';
 import { PhotoButtons, PhotoGrid, uploadPhotos } from './PhotoPicker';
 import { SubtaskList } from './SubtaskList';
+import { TimerPanel } from './TimerPanel';
 import { TodoForm } from './TodoForm';
 import { ErrorBox, Icon, Loading, Sheet, toast } from './ui';
 import { useMe } from './useMe';
@@ -293,6 +294,8 @@ export function TodoSheet(props: {
             )}
 
             <SubtaskList todoId={d.todo.id} instanceId={instanceId} canEdit={canEdit} onChanged={props.onChanged} />
+
+            {canEdit && <TimerPanel todoId={d.todo.id} />}
 
             {d.stats && (
               <div class="card mt-4">
