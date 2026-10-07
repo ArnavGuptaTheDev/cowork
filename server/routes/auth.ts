@@ -90,7 +90,7 @@ authRoutes.get('/google/callback', async (c) => {
       clientId: c.env.GOOGLE_CLIENT_ID,
       nonce: st.n,
       now: c.get('now'),
-      getKeys: () => fetchGoogleJwks(),
+      getKeys: (force) => fetchGoogleJwks(fetch, Date.now(), force),
     });
   } catch (e) {
     console.warn('google sign-in failed', e instanceof Error ? e.message : e);

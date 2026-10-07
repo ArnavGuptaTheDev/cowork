@@ -62,8 +62,9 @@ export async function exchangeCode(
 type Jwk = JsonWebKey & { kid?: string };
 let jwksCache: { keys: Jwk[]; expires: number } | null = null;
 
-export async function fetchGoogleJwks(fetchFn: typeof fetch = fetch, now = Date.now()): Promise<Jwk[]> {
-  if (jwksCache && jwksCache.expires > now) return jwksCache.keys;
+/** Google's signing keys, cached per their Cache-Control. `force` refetches (used when a token has an unknown kid, i.e. keys rotated). */
+export async function fetchGoogleJwks(fetchFn: typeof fetch = fetch, now = Date.now(), force = false): Promise<Jwk[]> {
+  if (!force && jwksCache && jwksCache.expires > now) return jwksCache.keys;
   const res = await fetchFn(GOOGLE_JWKS_URL);
   if (!res.ok) throw new Error(`JWKS fetch failed (${res.status})`);
   const { keys } = (await res.json()) as { keys: Jwk[] };
@@ -76,7 +77,7 @@ const dec = new TextDecoder();
 
 export async function verifyIdToken(
   idToken: string,
-  opts: { clientId: string; nonce: string; now?: number; getKeys: () => Promise<Jwk[]> },
+  opts: { clientId: string; nonce: string; now?: number; getKeys: (force?: boolean) => Promise<Jwk[]> },
 ): Promise<GoogleClaims> {
   const parts = idToken.split('.');
   if (parts.length !== 3) throw new Error('Malformed ID token');
@@ -84,7 +85,8 @@ export async function verifyIdToken(
   const header = JSON.parse(dec.decode(b64urlDecode(h))) as { alg?: string; kid?: string };
   if (header.alg !== 'RS256') throw new Error('Unexpected ID token algorithm');
 
-  const jwk = (await opts.getKeys()).find((k) => k.kid === header.kid);
+  let jwk = (await opts.getKeys()).find((k) => k.kid === header.kid);
+  if (!jwk) jwk = (await opts.getKeys(true)).find((k) => k.kid === header.kid); // keys may have rotated since we cached them
   if (!jwk) throw new Error('Unknown ID token signing key');
   const key = await crypto.subtle.importKey(
     'jwk',
