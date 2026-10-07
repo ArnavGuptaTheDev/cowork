@@ -26,9 +26,9 @@ export default defineConfig({
   },
   vite: {
     server: {
-      // `npm run dev` serves the UI; API calls go to `wrangler pages dev` on 8788 (`npm run dev:api`).
+      // `npm run dev` serves the UI; API calls go to `wrangler dev` on 8787 (`npm run dev:api`).
       // changeOrigin stays false so the API sees the browser's Host and Origin (CSRF + OAuth redirect URIs).
-      proxy: { '/api': { target: 'http://localhost:8788', changeOrigin: false } },
+      proxy: { '/api': { target: 'http://localhost:8787', changeOrigin: false } },
     },
   },
 });

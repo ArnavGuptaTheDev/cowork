@@ -1,6 +1,6 @@
 import type { UserRow } from './db';
 
-/** Bindings available to the Pages Functions (see wrangler.toml and .dev.vars.example). */
+/** Bindings available to the Worker (see wrangler.toml and .dev.vars.example). */
 export interface Env {
   DB: D1Database;
   PHOTOS: R2Bucket;

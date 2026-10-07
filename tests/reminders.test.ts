@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { runReminders } from '../workers/reminders/src/index';
+import { runReminders } from '../server/reminders';
 import { createTodo, updateTodo } from '../server/services/todos';
 import { localDate, zonedToUtc } from '../shared/time';
 import { createEnv, insertUser } from './helpers/app';

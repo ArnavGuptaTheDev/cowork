@@ -1,12 +1,25 @@
-# Cloudflare Pages project: static Astro build in ./dist + Pages Functions in ./functions.
+# CoWork is a single Cloudflare Worker: static site (assets) + API + reminders cron.
+# The Worker name must match the Worker you connect to GitHub in the dashboard (Workers Builds).
 name = "cowork"
-pages_build_output_dir = "./dist"
+main = "worker/index.ts"
 compatibility_date = "2026-09-01"
+workers_dev = true
+
+# Astro's static build. Requests for /api/* go to the Worker; everything else is served straight from assets
+# (with dist/_headers applied). /today resolves to today.html; unknown paths get 404.html.
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "404-page"
+run_worker_first = ["/api/*"]
+
+[triggers]
+crons = ["*/5 * * * *"]
 
 [vars]
 APP_ORIGIN = "https://cowork.arnavg.me"
 
-# database_id comes from `wrangler d1 create cowork` (it is an identifier, not a secret). Keep it in sync with workers/reminders/wrangler.toml.
+# database_id comes from `wrangler d1 create cowork` (an identifier, not a secret).
 [[d1_databases]]
 binding = "DB"
 database_name = "cowork"
@@ -18,6 +31,9 @@ migrations_dir = "migrations"
 binding = "PHOTOS"
 bucket_name = "cowork-photos"
 
-# Secrets (never in this file). Production: `wrangler pages secret put <NAME> --project-name cowork`.
-# Local: copy .dev.vars.example to .dev.vars.
+[observability]
+enabled = true
+
+# Secrets (never in this file). Production: dashboard → Workers → cowork → Settings → Variables and Secrets,
+# or `npx wrangler secret put <NAME>`. Local: copy .dev.vars.example to .dev.vars.
 #   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, SESSION_SECRET, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, SUPER_ADMIN_EMAIL

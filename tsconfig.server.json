@@ -12,5 +12,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["server/**/*", "shared/**/*", "functions/**/*", "workers/**/*", "tests/**/*", "vitest.config.ts"]
+  "include": ["worker/**/*", "server/**/*", "shared/**/*", "tests/**/*", "vitest.config.ts"]
 }

@@ -1,16 +1,9 @@
-// Cron Worker (every 5 minutes): materialises today's recurring instances for every user,
+// Cron job (every 5 minutes, see wrangler.toml): materialises today's recurring instances for every user,
 // then sends Web Push for reminders that have come due.
-import type { UserRow } from '../../../server/db';
-import { sendPushToUser, type PushEnv } from '../../../server/services/notify';
-import { materializeUser } from '../../../server/services/todos';
-import { localTime } from '../../../shared/time';
-
-export interface Env extends PushEnv {
-  DB: D1Database;
-  VAPID_PUBLIC_KEY: string;
-  VAPID_PRIVATE_KEY: string;
-  APP_ORIGIN?: string;
-}
+import type { UserRow } from './db';
+import { sendPushToUser, type PushEnv } from './services/notify';
+import { materializeUser } from './services/todos';
+import { localTime } from '../shared/time';
 
 /** Reminders older than this are dropped instead of sent late (e.g. after an outage). */
 export const REMINDER_GRACE_MS = 30 * 60_000;
@@ -24,7 +17,7 @@ interface DueRow {
   reminder_at: number;
 }
 
-export async function runReminders(env: Env, now: number, fetchFn: typeof fetch = fetch) {
+export async function runReminders(env: PushEnv, now: number, fetchFn: typeof fetch = fetch) {
   const { results: users } = await env.DB.prepare('SELECT * FROM users').all<UserRow>();
   for (const u of users) {
     try {
@@ -68,14 +61,3 @@ export async function runReminders(env: Env, now: number, fetchFn: typeof fetch 
   }
   return { users: users.length, due: due.length, sent };
 }
-
-export default {
-  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
-    ctx.waitUntil(
-      runReminders(env, Date.now()).then((r) => console.log('reminders', JSON.stringify(r))),
-    );
-  },
-  async fetch() {
-    return new Response('CoWork reminders worker. Nothing to see here.', { status: 404 });
-  },
-} satisfies ExportedHandler<Env>;

@@ -4,8 +4,8 @@
   "description": "A project and todo app for couples.",
   "scripts": {
     "dev": "astro dev",
-    "dev:api": "wrangler pages dev dist --port 8788",
-    "preview": "npm run build && wrangler pages dev dist --port 8788",
+    "dev:api": "wrangler dev",
+    "preview": "npm run build && wrangler dev",
     "build": "astro build",
     "typecheck": "astro check && tsc -p tsconfig.server.json",
     "test": "vitest run",
@@ -15,8 +15,7 @@
     "db:seed": "node scripts/seed.mjs",
     "vapid": "node scripts/generate-vapid.mjs",
     "icons": "node scripts/generate-icons.mjs",
-    "deploy:pages": "wrangler pages deploy dist --project-name cowork --branch main",
-    "deploy:worker": "wrangler deploy --config workers/reminders/wrangler.toml"
+    "deploy": "wrangler d1 migrations apply cowork --remote && wrangler deploy"
   },
   "license": "UNLICENSED",
   "type": "module",
