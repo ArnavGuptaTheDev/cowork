@@ -3,6 +3,7 @@ import { PROJECT_COLORS } from '../../shared/constants';
 import { errorMessage, send } from '../lib/api';
 import type { Category, Project } from '../lib/types';
 import { Sheet, toast } from './ui';
+import { useMe } from './useMe';
 
 export function ProjectForm(props: { open: boolean; project?: Project; onClose: () => void; onSaved: (p: Project) => void }) {
   const [name, setName] = useState('');
@@ -10,6 +11,8 @@ export function ProjectForm(props: { open: boolean; project?: Project; onClose: 
   const [category, setCategory] = useState<Category>('work');
   const [color, setColor] = useState<string>('clay');
   const [isPrivate, setPrivate] = useState(false);
+  const [isShared, setShared] = useState(false);
+  const me = useMe();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,6 +23,7 @@ export function ProjectForm(props: { open: boolean; project?: Project; onClose: 
     setCategory(props.project?.category ?? 'work');
     setColor(props.project?.color ?? 'clay');
     setPrivate(props.project?.isPrivate ?? false);
+    setShared(props.project?.isShared ?? false);
     setError(null);
   }, [props.open]);
 
@@ -28,7 +32,7 @@ export function ProjectForm(props: { open: boolean; project?: Project; onClose: 
     if (!name.trim()) return setError('Give it a name');
     setBusy(true);
     try {
-      const body = { name: name.trim(), description, category, color, isPrivate };
+      const body = { name: name.trim(), description, category, color, isPrivate: isShared ? false : isPrivate, isShared };
       const { project } = props.project
         ? await send<{ project: Project }>('PATCH', `/api/projects/${props.project.id}`, body)
         : await send<{ project: Project }>('POST', '/api/projects', body);
@@ -89,13 +93,32 @@ export function ProjectForm(props: { open: boolean; project?: Project; onClose: 
           </label>
           <textarea id="pf-desc" class="textarea" maxLength={2000} value={description} onInput={(e) => setDescription(e.currentTarget.value)} />
         </div>
-        <label class="switch mt-4">
-          <span>
-            <strong>Private project</strong>
-            <span class="hint">Hides the project and every todo in it from your partner.</span>
-          </span>
-          <input type="checkbox" role="switch" checked={isPrivate} onChange={(e) => setPrivate(e.currentTarget.checked)} />
-        </label>
+        {me?.partner && (
+          <label class="switch mt-4">
+            <span>
+              <strong>Shared with {me.partner.name.split(' ')[0]}</strong>
+              <span class="hint">You both see it and can add, edit and tick off its todos.</span>
+            </span>
+            <input
+              type="checkbox"
+              role="switch"
+              checked={isShared}
+              onChange={(e) => {
+                setShared(e.currentTarget.checked);
+                if (e.currentTarget.checked) setPrivate(false);
+              }}
+            />
+          </label>
+        )}
+        {!isShared && (
+          <label class="switch mt-4">
+            <span>
+              <strong>Private project</strong>
+              <span class="hint">Hides the project and every todo in it from your partner.</span>
+            </span>
+            <input type="checkbox" role="switch" checked={isPrivate} onChange={(e) => setPrivate(e.currentTarget.checked)} />
+          </label>
+        )}
         {error && (
           <p class="error-text mt-4" role="alert">
             {error}

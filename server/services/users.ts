@@ -48,6 +48,8 @@ export async function signInUser(env: Env, id: Identity, now: number): Promise<U
     paired_at: null,
     created_at: now,
     last_login_at: now,
+    wrapup_time: '21:00',
+    wrapup_sent_on: null,
   };
   await env.DB.prepare(
     `INSERT INTO users (id, email, google_sub, name, avatar_url, timezone, created_at, last_login_at)
@@ -58,11 +60,22 @@ export async function signInUser(env: Env, id: Identity, now: number): Promise<U
   return user;
 }
 
-/** Removes a partnership from both sides and withdraws pending suggestions between them. */
+/**
+ * Removes a partnership from both sides and withdraws pending suggestions between them.
+ * Shared items stay with whoever created them and become unshared; a todo one partner had put in
+ * the other's shared project leaves that project.
+ */
 export async function unpair(db: D1Database, user: UserRow, now: number): Promise<void> {
   const partnerId = user.partner_id;
   if (!partnerId) return;
   await db.batch([
+    db.prepare(
+      `UPDATE todos SET project_id = NULL
+        WHERE (user_id = ?1 AND project_id IN (SELECT id FROM projects WHERE user_id = ?2))
+           OR (user_id = ?2 AND project_id IN (SELECT id FROM projects WHERE user_id = ?1))`,
+    ).bind(user.id, partnerId),
+    db.prepare('UPDATE todos SET is_shared = 0, assigned_to = NULL WHERE user_id IN (?, ?)').bind(user.id, partnerId),
+    db.prepare('UPDATE projects SET is_shared = 0 WHERE user_id IN (?, ?)').bind(user.id, partnerId),
     db.prepare('UPDATE users SET partner_id = NULL, paired_at = NULL WHERE id = ? OR (id = ? AND partner_id = ?)').bind(user.id, partnerId, user.id),
     db
       .prepare(

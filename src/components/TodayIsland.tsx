@@ -1,8 +1,9 @@
-import { useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import { copy } from '../content/copy';
 import { get, getMe } from '../lib/api';
 import { dayMonth, dayName, greeting } from '../lib/format';
 import type { DayItem, Me, TodayView } from '../lib/types';
+import { QuickAdd } from './QuickAdd';
 import { TodoForm } from './TodoForm';
 import { TodoItem } from './TodoItem';
 import { TodoSheet } from './TodoSheet';
@@ -12,6 +13,12 @@ import { sortForDisplay, toggleItem } from './useTodos';
 export default function TodayIsland() {
   const [creating, setCreating] = useState(false);
   const [openItem, setOpenItem] = useState<DayItem | null>(null);
+  // Deep link from a notification: /today?todo=<id> opens that todo.
+  const [deepTodo, setDeepTodo] = useState<string | null>(null);
+  useEffect(() => {
+    const id = new URLSearchParams(location.search).get('todo');
+    if (id) setDeepTodo(id);
+  }, []);
   const state = useLoad(async () => {
     const me = await getMe();
     const [mine, partner] = await Promise.all([
@@ -69,6 +76,7 @@ export default function TodayIsland() {
         </aside>
 
         <div class="split-main">
+          <QuickAdd today={mine.date} onSaved={state.reload} />
           {mine.items.length === 0 ? (
             <Empty title={copy.today.empty.title} body={copy.today.empty.body} icon="sun">
               <button type="button" class="btn" onClick={() => setCreating(true)}>
@@ -103,7 +111,19 @@ export default function TodayIsland() {
       </button>
 
       <TodoForm open={creating} mode="create" today={mine.date} onClose={() => setCreating(false)} onSaved={state.reload} />
-      <TodoSheet todoId={openItem?.todoId ?? null} instanceId={openItem?.instanceId} onClose={() => setOpenItem(null)} onChanged={state.reload} />
+      <TodoSheet
+        todoId={openItem?.todoId ?? deepTodo}
+        instanceId={openItem?.instanceId ?? mine.items.find((i) => i.todoId === deepTodo)?.instanceId}
+        item={openItem ?? mine.items.find((i) => i.todoId === deepTodo)}
+        onClose={() => {
+          setOpenItem(null);
+          if (deepTodo) {
+            setDeepTodo(null);
+            history.replaceState(null, '', '/today');
+          }
+        }}
+        onChanged={state.reload}
+      />
       <Toasts />
     </>
   );

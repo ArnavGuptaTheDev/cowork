@@ -3,6 +3,7 @@ import { MAX_PHOTO_BYTES, MAX_PHOTOS_PER_TARGET, PHOTO_TYPES } from '../../share
 import type { PhotoRow, SuggestionRow, TodoRow, UserRow } from '../db';
 import type { Env } from '../env';
 import { badRequest, HttpError, notFound } from '../http';
+import { todoAccess } from './access';
 
 export async function deletePhotoObjects(env: Env, keys: string[]): Promise<void> {
   for (let i = 0; i < keys.length; i += 500) {
@@ -30,7 +31,10 @@ export interface UploadTarget {
   suggestionId: string | null;
 }
 
-/** Resolves and authorises an upload target: only owners attach photos (suggesters to their own pending suggestions). */
+/**
+ * Resolves and authorises an upload target: people who can edit the todo attach photos (the owner, or the
+ * partner on a shared todo); suggesters attach to their own pending suggestions.
+ */
 export async function resolveUploadTarget(
   db: D1Database,
   user: UserRow,
@@ -38,15 +42,14 @@ export async function resolveUploadTarget(
 ): Promise<UploadTarget> {
   if (fields.instanceId) {
     const i = await db
-      .prepare('SELECT id, todo_id FROM todo_instances WHERE id = ? AND user_id = ?')
-      .bind(fields.instanceId, user.id)
+      .prepare('SELECT id, todo_id FROM todo_instances WHERE id = ?')
+      .bind(fields.instanceId)
       .first<{ id: string; todo_id: string }>();
-    if (!i) throw notFound('Todo not found');
+    if (!i || !(await todoAccess(db, user, i.todo_id))?.canEdit) throw notFound('Todo not found');
     return { todoId: i.todo_id, instanceId: i.id, suggestionId: null };
   }
   if (fields.todoId) {
-    const t = await db.prepare('SELECT id FROM todos WHERE id = ? AND user_id = ?').bind(fields.todoId, user.id).first();
-    if (!t) throw notFound('Todo not found');
+    if (!(await todoAccess(db, user, fields.todoId))?.canEdit) throw notFound('Todo not found');
     return { todoId: fields.todoId, instanceId: null, suggestionId: null };
   }
   if (fields.suggestionId) {

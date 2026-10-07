@@ -29,18 +29,23 @@ meRoutes.get('/me', async (c) => {
     vapidPublicKey: c.env.VAPID_PUBLIC_KEY || null,
     today: localDate(c.get('now'), user.timezone),
     pendingSuggestions: pending?.n ?? 0,
+    wrapupTime: user.wrapup_time,
+    serverNow: c.get('now'),
   });
 });
 
 meRoutes.patch('/me', async (c) => {
   const user = c.get('user');
   const input = await body(c, meUpdateSchema);
-  await c.env.DB.prepare('UPDATE users SET name = COALESCE(?, name), timezone = COALESCE(?, timezone) WHERE id = ?')
-    .bind(input.name ?? null, input.timezone ?? null, user.id)
+  await c.env.DB.prepare(
+    `UPDATE users SET name = COALESCE(?, name), timezone = COALESCE(?, timezone),
+       wrapup_time = CASE WHEN ? THEN ? ELSE wrapup_time END WHERE id = ?`,
+  )
+    .bind(input.name ?? null, input.timezone ?? null, input.wrapupTime !== undefined ? 1 : 0, input.wrapupTime ?? null, user.id)
     .run();
   const updated = (await getUser(c.env.DB, user.id))!;
   if (input.timezone && input.timezone !== user.timezone) await recomputeReminders(c.env.DB, updated, c.get('now'));
-  return c.json({ user: publicUser(updated) });
+  return c.json({ user: publicUser(updated), wrapupTime: updated.wrapup_time });
 });
 
 // --- Pairing ---

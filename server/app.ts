@@ -3,6 +3,7 @@ import type { AppEnv } from './env';
 import { HttpError } from './http';
 import { clock, requireCsrf, requireSession, securityHeaders } from './middleware';
 import { adminRoutes } from './routes/admin';
+import { interactRoutes } from './routes/interact';
 import { authRoutes } from './routes/auth';
 import { meRoutes } from './routes/me';
 import { photoRoutes } from './routes/photos';
@@ -23,6 +24,7 @@ export function createApp() {
   authed.use('*', requireSession, requireCsrf);
   authed.route('/', meRoutes);
   authed.route('/', todoRoutes);
+  authed.route('/', interactRoutes);
   authed.route('/', suggestionRoutes);
   authed.route('/', photoRoutes);
   authed.route('/', pushRoutes);

@@ -34,6 +34,8 @@ export async function insertUser(env: Env, email: string, opts: Partial<UserRow>
     paired_at: null,
     created_at: Date.now(),
     last_login_at: null,
+    wrapup_time: '21:00',
+    wrapup_sent_on: null,
     ...opts,
   };
   await env.DB.prepare(

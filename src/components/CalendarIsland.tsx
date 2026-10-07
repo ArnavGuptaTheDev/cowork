@@ -162,7 +162,7 @@ export default function CalendarIsland({ mode }: { mode: Mode }) {
         <MonthGrid data={data} today={today} selected={selected} onSelect={setSelected} readOnly={readOnly} apply={apply} onOpen={setOpenItem} />
       )}
 
-      <TodoSheet todoId={openItem?.todoId ?? null} instanceId={openItem?.instanceId} onClose={() => setOpenItem(null)} onChanged={load} />
+      <TodoSheet todoId={openItem?.todoId ?? null} instanceId={openItem?.instanceId} item={openItem} onClose={() => setOpenItem(null)} onChanged={load} />
       <Toasts />
     </>
   );

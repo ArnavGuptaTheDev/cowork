@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { canViewTodo } from '../../shared/authz';
 import { habitStats } from '../../shared/streaks';
 import {
   completeSchema,
@@ -7,14 +6,17 @@ import {
   projectCreateSchema,
   projectUpdateSchema,
   rangeQuerySchema,
+  rescheduleSchema,
+  snoozeSchema,
   todoCreateSchema,
   todoUpdateSchema,
   whoSchema,
 } from '../../shared/schemas';
 import { addDays, localDate } from '../../shared/time';
-import { photoDto, projectDto, publicUser, todoDto, type PhotoRow, type ProjectRow, type TodoRow } from '../db';
-import { notFound, parse } from '../http';
-import { getPartner, getUser, resolveTarget } from '../services/access';
+import { photoDto, projectDto, publicUser, todoDto, type PhotoRow, type ProjectRow, type UserRow } from '../db';
+import type { Env } from '../env';
+import { badRequest, conflict, notFound, parse } from '../http';
+import { getPartner, getUser, resolveTarget, todoAccess } from '../services/access';
 import { notifyOnce } from '../services/notify';
 import {
   completeInstance,
@@ -22,6 +24,9 @@ import {
   deleteTodo,
   getOwnTodo,
   materializeUser,
+  rescheduleInstance,
+  skipInstance,
+  snoozeInstance,
   uncompleteInstance,
   updateTodo,
 } from '../services/todos';
@@ -41,24 +46,24 @@ export const todoRoutes = router();
 
 const idParam = (v: string | undefined) => parse(idSchema, v);
 
-// --- Views (own or partner's, read-only for partners) ---
+// --- Views (own or partner's; partners see the other's items read-only, shared items editable) ---
 
 todoRoutes.get('/today', async (c) => {
   const { who } = query(c, whoSchema);
   const t = await resolveTarget(c.env.DB, c.get('user'), who);
-  return c.json(await todayView(c.env.DB, t.owner, t.asPartner, c.get('now')));
+  return c.json(await todayView(c.env.DB, t.owner, c.get('user'), c.get('now')));
 });
 
 todoRoutes.get('/range', async (c) => {
   const q = query(c, rangeQuerySchema);
   const t = await resolveTarget(c.env.DB, c.get('user'), q.who);
-  return c.json(await rangeView(c.env.DB, t.owner, t.asPartner, q.from, q.to, c.get('now')));
+  return c.json(await rangeView(c.env.DB, t.owner, c.get('user'), q.from, q.to, c.get('now')));
 });
 
 todoRoutes.get('/habits', async (c) => {
   const { who } = query(c, whoSchema);
   const t = await resolveTarget(c.env.DB, c.get('user'), who);
-  return c.json(await habitsView(c.env.DB, t.owner, t.asPartner, c.get('now')));
+  return c.json(await habitsView(c.env.DB, t.owner, c.get('user'), c.get('now')));
 });
 
 // --- Projects ---
@@ -66,28 +71,27 @@ todoRoutes.get('/habits', async (c) => {
 todoRoutes.get('/projects', async (c) => {
   const q = query(c, whoSchema.extend({ archived: z.enum(['0', '1']).default('0') }));
   const t = await resolveTarget(c.env.DB, c.get('user'), q.who);
-  return c.json({ projects: await projectsView(c.env.DB, t.owner, t.asPartner, q.archived === '1') });
+  return c.json({ projects: await projectsView(c.env.DB, t.owner, c.get('user'), q.archived === '1') });
 });
 
 todoRoutes.post('/projects', async (c) => {
   const input = await body(c, projectCreateSchema);
   const user = c.get('user');
+  if (input.isShared && !(await getPartner(c.env.DB, user))) throw badRequest('Pair with your partner to share projects');
   const now = c.get('now');
   const id = crypto.randomUUID();
   await c.env.DB.prepare(
-    `INSERT INTO projects (id, user_id, name, description, category, color, is_private, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO projects (id, user_id, name, description, category, color, is_private, is_shared, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
-    .bind(id, user.id, input.name, input.description, input.category, input.color, input.isPrivate ? 1 : 0, now, now)
+    .bind(id, user.id, input.name, input.description, input.category, input.color, input.isPrivate ? 1 : 0, input.isShared ? 1 : 0, now, now)
     .run();
   const row = await c.env.DB.prepare('SELECT * FROM projects WHERE id = ?').bind(id).first<ProjectRow>();
   return c.json({ project: projectDto(row!) }, 201);
 });
 
 todoRoutes.get('/projects/:id', async (c) => {
-  const { who } = query(c, whoSchema);
-  const t = await resolveTarget(c.env.DB, c.get('user'), who);
-  return c.json(await projectView(c.env.DB, t.owner, t.asPartner, idParam(c.req.param('id')), c.get('now')));
+  return c.json(await projectView(c.env.DB, c.get('user'), idParam(c.req.param('id')), c.get('now')));
 });
 
 todoRoutes.patch('/projects/:id', async (c) => {
@@ -96,9 +100,19 @@ todoRoutes.patch('/projects/:id', async (c) => {
   const user = c.get('user');
   const p = await c.env.DB.prepare('SELECT * FROM projects WHERE id = ? AND user_id = ?').bind(id, user.id).first<ProjectRow>();
   if (!p) throw notFound('Project not found');
+  const isPrivate = input.isPrivate === undefined ? p.is_private : input.isPrivate ? 1 : 0;
+  const isShared = input.isShared === undefined ? p.is_shared : input.isShared ? 1 : 0;
+  if (isPrivate && isShared) throw badRequest('A project can be private or shared, not both');
+  if (isShared && !p.is_shared) {
+    if (!(await getPartner(c.env.DB, user))) throw badRequest('Pair with your partner to share projects');
+    const priv = await c.env.DB.prepare('SELECT COUNT(*) AS n FROM todos WHERE project_id = ? AND is_private = 1')
+      .bind(id)
+      .first<{ n: number }>();
+    if (priv?.n) throw conflict(`This project has ${priv.n} private todo${priv.n > 1 ? 's' : ''}. Make them non-private or move them out first`);
+  }
   const archivedAt = input.archived === undefined ? p.archived_at : input.archived ? (p.archived_at ?? c.get('now')) : null;
   await c.env.DB.prepare(
-    `UPDATE projects SET name = ?, description = ?, category = ?, color = ?, is_private = ?, archived_at = ?, updated_at = ?
+    `UPDATE projects SET name = ?, description = ?, category = ?, color = ?, is_private = ?, is_shared = ?, archived_at = ?, updated_at = ?
       WHERE id = ? AND user_id = ?`,
   )
     .bind(
@@ -106,13 +120,18 @@ todoRoutes.patch('/projects/:id', async (c) => {
       input.description ?? p.description,
       input.category ?? p.category,
       input.color ?? p.color,
-      input.isPrivate === undefined ? p.is_private : input.isPrivate ? 1 : 0,
+      isPrivate,
+      isShared,
       archivedAt,
       c.get('now'),
       id,
       user.id,
     )
     .run();
+  if (p.is_shared && !isShared) {
+    // Unsharing: the partner's todos in it move out (they keep them, without the project).
+    await c.env.DB.prepare('UPDATE todos SET project_id = NULL WHERE project_id = ? AND user_id != ?').bind(id, user.id).run();
+  }
   const row = await c.env.DB.prepare('SELECT * FROM projects WHERE id = ?').bind(id).first<ProjectRow>();
   return c.json({ project: projectDto(row!) });
 });
@@ -137,40 +156,27 @@ todoRoutes.post('/todos', async (c) => {
 todoRoutes.get('/todos/:id', async (c) => {
   const id = idParam(c.req.param('id'));
   const viewer = c.get('user');
-  const row = await c.env.DB.prepare(
-    `SELECT t.*, p.is_private AS project_private FROM todos t LEFT JOIN projects p ON p.id = t.project_id WHERE t.id = ?`,
-  )
-    .bind(id)
-    .first<TodoRow & { project_private: number | null }>();
-  if (!row) throw notFound('Todo not found');
-  const owner = row.user_id === viewer.id ? viewer : await getUser(c.env.DB, row.user_id);
-  if (
-    !owner ||
-    !canViewTodo(
-      { id: viewer.id, partnerId: viewer.partner_id },
-      { userId: row.user_id, isPrivate: row.is_private === 1, projectPrivate: row.project_private === 1 },
-      owner.partner_id,
-    )
-  ) {
-    throw notFound('Todo not found');
-  }
+  const access = await todoAccess(c.env.DB, viewer, id);
+  if (!access) throw notFound('Todo not found');
+  const { todo: row, owner } = access;
   const now = c.get('now');
   const today = await materializeUser(c.env.DB, owner, now);
-  const [project, photos, instances, suggester] = await Promise.all([
-    row.project_id ? c.env.DB.prepare('SELECT * FROM projects WHERE id = ?').bind(row.project_id).first<ProjectRow>() : null,
+  const [photos, instances, suggester] = await Promise.all([
     c.env.DB.prepare('SELECT * FROM photos WHERE todo_id = ? ORDER BY created_at').bind(id).all<PhotoRow>(),
     recentInstances(c.env.DB, id),
     row.suggested_by ? getUser(c.env.DB, row.suggested_by) : null,
   ]);
   const history = row.recurrence !== 'none' ? (await loadHistories(c.env.DB, [id], addDays(today, -400))).get(id) ?? [] : null;
   return c.json({
-    todo: todoDto(row),
-    canEdit: owner.id === viewer.id,
+    todo: { ...todoDto(row), isShared: access.shared },
+    canEdit: access.canEdit,
+    isOwner: access.isOwner,
+    canComment: row.is_private === 0 && access.project?.is_private !== 1,
     today,
-    project: project ? projectDto(project) : null,
+    project: access.project ? projectDto(access.project) : null,
     suggestedBy: suggester ? publicUser(suggester).name : null,
     photos: photos.results.map(photoDto),
-    instances: instances.map((i) => ({ ...i, completedAt: i.completed_at })),
+    instances: instances.map((i) => ({ ...i, completedAt: i.completed_at, completedBy: i.completed_by })),
     stats: history ? habitStats(history, today) : null,
   });
 });
@@ -187,31 +193,61 @@ todoRoutes.delete('/todos/:id', async (c) => {
   return c.json({ ok: true });
 });
 
-// --- Instances (checking things off) ---
+// --- Instances (checking things off, moving them) ---
+
+/** Push the partner once when the actor has finished everything for their day. */
+async function cheerIfAllDone(env: Env, actor: UserRow, now: number) {
+  const partner = await getPartner(env.DB, actor);
+  if (!partner || !(await allDoneToday(env.DB, actor, now))) return;
+  const today = localDate(now, actor.timezone);
+  await notifyOnce(env, partner.id, 'partner_all_done', `${actor.id}:${today}`, {
+    title: `${publicUser(actor).name} finished everything today 🎉`,
+    body: 'Every todo for today is ticked off. Maybe send a cheer.',
+    url: '/partner',
+    tag: `all-done-${actor.id}`,
+  });
+}
 
 todoRoutes.post('/instances/:id/complete', async (c) => {
   const user = c.get('user');
   const now = c.get('now');
   const { note } = await body(c, completeSchema);
-  const inst = await completeInstance(c.env, user, idParam(c.req.param('id')), note, now);
-  defer(
-    c,
-    (async () => {
-      const partner = await getPartner(c.env.DB, user);
-      if (!partner || !(await allDoneToday(c.env.DB, user, now))) return;
-      const today = localDate(now, user.timezone);
-      await notifyOnce(c.env, partner.id, 'partner_all_done', `${user.id}:${today}`, {
-        title: `${publicUser(user).name} finished everything today 🎉`,
-        body: 'Every todo for today is ticked off. Maybe send a cheer.',
-        url: '/partner',
-        tag: `all-done-${user.id}`,
-      });
-    })(),
-  );
-  return c.json({ instance: { id: inst.id, status: inst.status, completedAt: inst.completed_at } });
+  const { inst } = await completeInstance(c.env, user, idParam(c.req.param('id')), note, now);
+  defer(c, cheerIfAllDone(c.env, user, now));
+  return c.json({ instance: { id: inst.id, status: inst.status, completedAt: inst.completed_at, completedBy: inst.completed_by } });
 });
 
 todoRoutes.post('/instances/:id/uncomplete', async (c) => {
-  const inst = await uncompleteInstance(c.env, c.get('user'), idParam(c.req.param('id')), c.get('now'));
-  return c.json({ instance: { id: inst.id, status: inst.status, completedAt: null } });
+  const { inst } = await uncompleteInstance(c.env, c.get('user'), idParam(c.req.param('id')), c.get('now'));
+  return c.json({ instance: { id: inst.id, status: inst.status, completedAt: null, completedBy: null } });
+});
+
+todoRoutes.post('/instances/:id/reschedule', async (c) => {
+  const { date } = await body(c, rescheduleSchema);
+  const { inst } = await rescheduleInstance(c.env, c.get('user'), idParam(c.req.param('id')), date, c.get('now'));
+  return c.json({ instance: { id: inst.id, date: inst.date } });
+});
+
+/** "Tomorrow" in the owner's calendar (used by notification actions, which don't know the date). */
+todoRoutes.post('/instances/:id/tomorrow', async (c) => {
+  const user = c.get('user');
+  const now = c.get('now');
+  const id = idParam(c.req.param('id'));
+  const inst = await c.env.DB.prepare('SELECT todo_id FROM todo_instances WHERE id = ?').bind(id).first<{ todo_id: string }>();
+  const access = inst ? await todoAccess(c.env.DB, user, inst.todo_id) : null;
+  if (!access) throw notFound('Todo not found');
+  const tomorrow = addDays(localDate(now, access.owner.timezone), 1);
+  const r = await rescheduleInstance(c.env, user, id, tomorrow, now);
+  return c.json({ instance: { id: r.inst.id, date: r.inst.date } });
+});
+
+todoRoutes.post('/instances/:id/skip', async (c) => {
+  await skipInstance(c.env, c.get('user'), idParam(c.req.param('id')));
+  return c.json({ ok: true });
+});
+
+todoRoutes.post('/instances/:id/snooze', async (c) => {
+  const { minutes } = await body(c, snoozeSchema);
+  const at = await snoozeInstance(c.env, c.get('user'), idParam(c.req.param('id')), minutes, c.get('now'));
+  return c.json({ reminderAt: at });
 });

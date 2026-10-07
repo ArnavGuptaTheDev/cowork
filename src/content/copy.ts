@@ -33,7 +33,7 @@ export const copy = {
       body: 'Pair with your partner to see each other\'s day, projects and streaks.',
       cta: 'Pair up in Settings',
     },
-    readOnly: 'View only. These are their lists.',
+    readOnly: 'Their lists. You can react, nudge and comment; shared todos you can edit too.',
     suggest: 'Suggest a todo',
   },
   habits: {

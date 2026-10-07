@@ -9,13 +9,14 @@ import { TodoForm } from './TodoForm';
 import { TodoItem } from './TodoItem';
 import { TodoSheet } from './TodoSheet';
 import { Avatar, Empty, ErrorBox, Icon, Loading, ProgressRing, Toasts, useLoad } from './ui';
+import { toggleItem } from './useTodos';
 
 type Tab = 'today' | 'projects' | 'habits';
 
 export default function PartnerIsland() {
   const [tab, setTab] = useState<Tab>('today');
   const [suggesting, setSuggesting] = useState(false);
-  const [open, setOpen] = useState<{ todoId: string } | null>(null);
+  const [open, setOpen] = useState<{ todoId: string; instanceId?: string | null; item?: DayItem } | null>(null);
 
   useEffect(() => {
     const h = location.hash.slice(1);
@@ -60,6 +61,10 @@ export default function PartnerIsland() {
   }
 
   const partner = me.partner;
+  const apply = (instanceId: string, status: DayItem['status']) =>
+    state.setData((d) =>
+      d && d.today ? { ...d, today: { ...d.today, items: d.today.items.map((i) => (i.instanceId === instanceId ? { ...i, status, completedBy: status === 'done' ? me.user.id : null } : i)) } } : d,
+    );
   const first = partner.name.split(' ')[0];
 
   return (
@@ -101,7 +106,7 @@ export default function PartnerIsland() {
         (today.items.length ? (
           <ul class="todo-list">
             {today.items.map((item: DayItem) => (
-              <TodoItem key={item.instanceId} item={item} today={today.date} readOnly onOpen={(i) => setOpen({ todoId: i.todoId })} />
+              <TodoItem key={item.instanceId} item={item} today={today.date} onToggle={(i) => toggleItem(i, today.date, apply)} onOpen={(i) => setOpen({ todoId: i.todoId, instanceId: i.instanceId, item: i })} />
             ))}
           </ul>
         ) : (
@@ -121,13 +126,13 @@ export default function PartnerIsland() {
 
       {tab === 'habits' &&
         (habits && habits.length ? (
-          <HabitList habits={habits} readOnly onOpen={(h) => setOpen({ todoId: h.todoId })} />
+          <HabitList habits={habits} onOpen={(h) => setOpen({ todoId: h.todoId, instanceId: h.todayInstanceId })} />
         ) : (
           <Empty title="No habits to show" body={`${first} isn't tracking any shared habits.`} icon="flame" />
         ))}
 
       <TodoForm open={suggesting} mode="suggest" today={today.date} partnerName={first} onClose={() => setSuggesting(false)} onSaved={() => undefined} />
-      <TodoSheet todoId={open?.todoId ?? null} onClose={() => setOpen(null)} onChanged={state.reload} />
+      <TodoSheet todoId={open?.todoId ?? null} instanceId={open?.instanceId} item={open?.item} onClose={() => setOpen(null)} onChanged={state.reload} />
       <Toasts />
     </>
   );

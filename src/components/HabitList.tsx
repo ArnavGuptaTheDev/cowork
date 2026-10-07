@@ -16,7 +16,7 @@ export function HabitList(props: { habits: Habit[]; readOnly?: boolean; onToggle
                 <Check
                   checked={done}
                   label={`${done ? 'Mark not done' : 'Mark done'} today: ${h.title}`}
-                  disabled={props.readOnly}
+                  disabled={props.readOnly || !h.canEdit}
                   onToggle={() => props.onToggle?.(h)}
                 />
               ) : (

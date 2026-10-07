@@ -15,6 +15,8 @@ export interface UserRow {
   paired_at: number | null;
   created_at: number;
   last_login_at: number | null;
+  wrapup_time: string | null;
+  wrapup_sent_on: string | null;
 }
 
 export interface ProjectRow {
@@ -25,6 +27,7 @@ export interface ProjectRow {
   category: Category;
   color: string;
   is_private: number;
+  is_shared: number;
   archived_at: number | null;
   created_at: number;
   updated_at: number;
@@ -45,6 +48,8 @@ export interface TodoRow {
   recurrence_weekdays: string | null;
   recurrence_month_day: number | null;
   is_private: number;
+  is_shared: number;
+  assigned_to: string | null;
   suggested_by: string | null;
   materialized_through: string | null;
   created_at: number;
@@ -59,6 +64,7 @@ export interface InstanceRow {
   status: InstanceStatus;
   completed_at: number | null;
   completed_on: string | null;
+  completed_by: string | null;
   note: string;
   reminder_at: number | null;
   reminded_at: number | null;
@@ -121,6 +127,8 @@ export interface ProjectDto {
   category: Category;
   color: string;
   isPrivate: boolean;
+  isShared: boolean;
+  ownerId: string;
   archived: boolean;
   createdAt: number;
 }
@@ -133,6 +141,8 @@ export function projectDto(p: ProjectRow): ProjectDto {
     category: p.category,
     color: p.color,
     isPrivate: p.is_private === 1,
+    isShared: p.is_shared === 1,
+    ownerId: p.user_id,
     archived: p.archived_at !== null,
     createdAt: p.created_at,
   };
@@ -150,6 +160,10 @@ export interface TodoDto {
   reminderTime: string | null;
   recurrence: Recurrence;
   isPrivate: boolean;
+  isShared: boolean;
+  /** Assignee of a shared todo (user id), null = either of us. */
+  assignedTo: string | null;
+  ownerId: string;
   suggestedBy: string | null;
   createdAt: number;
 }
@@ -167,6 +181,9 @@ export function todoDto(t: TodoRow): TodoDto {
     reminderTime: t.reminder_time,
     recurrence: ruleFromColumns(t),
     isPrivate: t.is_private === 1,
+    isShared: t.is_shared === 1,
+    assignedTo: t.assigned_to,
+    ownerId: t.user_id,
     suggestedBy: t.suggested_by,
     createdAt: t.created_at,
   };

@@ -1772,3 +1772,159 @@ dialog.sheet::backdrop {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
+
+/* ---------- Phase 1: partner interaction ---------- */
+.btn.small {
+  min-height: 36px;
+  padding: 0 var(--s-3);
+  font-size: var(--t-s);
+}
+.icon-btn.small {
+  width: 36px;
+  height: 36px;
+}
+.icon-btn.small svg {
+  width: 18px;
+  height: 18px;
+}
+.date-input {
+  width: auto;
+  min-width: 150px;
+}
+.todo.is-shared {
+  background-image: linear-gradient(90deg, color-mix(in oklab, var(--plum-tint) 55%, transparent), transparent 40%);
+}
+.todo.is-paused {
+  opacity: 0.7;
+}
+.reactions {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+.reaction {
+  display: inline-grid;
+  place-items: center;
+  min-width: 28px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--paper-deep);
+  border: 1px solid var(--line);
+  font-size: 0.9rem;
+  line-height: 1;
+}
+.partner-actions {
+  display: grid;
+  gap: var(--s-3);
+}
+.emoji-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.emoji-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line-strong);
+  background: var(--surface-raised);
+  font-size: 1.3rem;
+  cursor: pointer;
+  transition: transform var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.emoji-btn:hover {
+  transform: scale(1.08);
+}
+.emoji-btn[aria-pressed='true'] {
+  background: var(--plum-tint);
+  border-color: var(--plum);
+}
+.comment-list {
+  list-style: none;
+  margin: 0 0 var(--s-3);
+  padding: 0;
+  display: grid;
+  gap: var(--s-3);
+}
+.comment {
+  display: grid;
+  grid-template-columns: 32px 1fr auto;
+  gap: var(--s-2);
+  align-items: start;
+}
+.comment .avatar {
+  width: 32px;
+  height: 32px;
+  font-size: var(--t-xs);
+}
+.comment-body {
+  background: var(--paper-deep);
+  border-radius: 4px var(--radius-m) var(--radius-m) var(--radius-m);
+  padding: var(--s-2) var(--s-3);
+  min-width: 0;
+}
+.comment.mine .comment-body {
+  background: var(--clay-tint);
+}
+.comment-meta {
+  font-size: var(--t-xs);
+  margin-bottom: 2px;
+}
+.comment-form {
+  display: flex;
+  gap: var(--s-2);
+}
+
+.quickadd {
+  margin-bottom: var(--s-4);
+}
+.quickadd-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 6px 6px 6px var(--s-3);
+  border-radius: var(--radius-m);
+  border: 1.5px solid var(--line-strong);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-1);
+}
+.quickadd-row:focus-within {
+  border-color: var(--clay);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--clay) 18%, transparent);
+}
+.quickadd-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--clay);
+  flex: none;
+}
+.quickadd-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  border: 0;
+  background: transparent;
+  outline: none;
+  font-size: var(--t-m);
+}
+.quickadd-preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: var(--s-2);
+}
+.wrapup-item {
+  border-left: 4px solid var(--cat, var(--line-strong));
+}
+.wrapup-item[data-category='personal'] {
+  --cat: var(--cat-personal);
+}
+.wrapup-item[data-category='work'] {
+  --cat: var(--cat-work);
+}
+.wrapup-item[data-category='habit'] {
+  --cat: var(--cat-habit);
+}

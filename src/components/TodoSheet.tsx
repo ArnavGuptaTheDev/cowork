@@ -1,18 +1,37 @@
 import { useEffect, useState } from 'preact/hooks';
+import { canReact, nudgeTarget } from '../../shared/authz';
+import { REACTIONS } from '../../shared/constants';
 import { describeRule } from '../../shared/recurrence';
+import { addDays } from '../../shared/time';
 import { errorMessage, get, send } from '../lib/api';
 import { percent, prettyTime, relativeDay } from '../lib/format';
-import type { Photo, TodoDetail } from '../lib/types';
+import { assigneeLabel, nameFor } from '../lib/people';
+import type { DayItem, Photo, TodoDetail } from '../lib/types';
+import { CommentThread } from './CommentThread';
 import { PhotoButtons, PhotoGrid, uploadPhotos } from './PhotoPicker';
 import { TodoForm } from './TodoForm';
 import { ErrorBox, Icon, Loading, Sheet, toast } from './ui';
+import { useMe } from './useMe';
 
-/** Detail sheet for one todo. Owners can edit, delete and add photos; partners get a read-only view. */
-export function TodoSheet(props: { todoId: string | null; instanceId?: string | null; onClose: () => void; onChanged: () => void }) {
+/**
+ * Detail sheet for one todo. Owners (and partners, on shared todos) can edit and act on it;
+ * partners can react to completions, nudge open todos and comment.
+ */
+export function TodoSheet(props: {
+  todoId: string | null;
+  instanceId?: string | null;
+  /** The row the sheet was opened from, when there is one (for its reactions). */
+  item?: DayItem | null;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const me = useMe();
   const [detail, setDetail] = useState<TodoDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [myReaction, setMyReaction] = useState<string | null>(null);
+  const [moveTo, setMoveTo] = useState('');
 
   const load = async () => {
     if (!props.todoId) return;
@@ -27,8 +46,10 @@ export function TodoSheet(props: { todoId: string | null; instanceId?: string | 
   useEffect(() => {
     setDetail(null);
     setEditing(false);
+    setMoveTo('');
+    setMyReaction(props.item?.reactions.find((r) => r.userId === me?.user.id)?.emoji ?? null);
     void load();
-  }, [props.todoId]);
+  }, [props.todoId, me?.user.id]);
 
   const open = !!props.todoId && !editing;
   const d = detail;
@@ -37,6 +58,22 @@ export function TodoSheet(props: { todoId: string | null; instanceId?: string | 
   const todoPhotos = d?.photos.filter((p) => !p.instanceId) ?? [];
   const proofPhotos = d?.photos.filter((p) => p.instanceId) ?? [];
   const thisInstance = d?.instances.find((i) => i.id === instanceId);
+  const oneOff = d?.todo.recurrence.type === 'none';
+
+  const viewer = me ? { id: me.user.id, partnerId: me.partner?.id ?? null } : null;
+  const ownerPartnerId = d && me ? (d.todo.ownerId === me.user.id ? (me.partner?.id ?? null) : me.user.id) : null;
+  const authz = d
+    ? {
+        userId: d.todo.ownerId,
+        isPrivate: d.todo.isPrivate,
+        projectPrivate: !!d.project?.isPrivate,
+        isShared: d.todo.isShared,
+        assignedTo: d.todo.assignedTo,
+      }
+    : null;
+  const reactable =
+    !!viewer && !!authz && !!thisInstance && canReact(viewer, authz, ownerPartnerId, { status: thisInstance.status, completedBy: thisInstance.completedBy });
+  const nudgeTo = viewer && authz && thisInstance ? nudgeTarget(viewer, authz, ownerPartnerId, { status: thisInstance.status }) : null;
 
   const addPhotos = async (files: File[], target: { todoId?: string; instanceId?: string }) => {
     setBusy(true);
@@ -84,6 +121,41 @@ export function TodoSheet(props: { todoId: string | null; instanceId?: string | 
     }
   };
 
+  const reschedule = async (date: string) => {
+    if (!instanceId || !date) return;
+    try {
+      await send('POST', `/api/instances/${instanceId}/reschedule`, { date });
+      toast(`Moved to ${relativeDay(date, d?.today ?? date).toLowerCase()}`);
+      props.onChanged();
+      props.onClose();
+    } catch (e) {
+      toast(errorMessage(e), 'error');
+    }
+  };
+
+  const react = async (emoji: string | null) => {
+    if (!instanceId) return;
+    const prev = myReaction;
+    setMyReaction(emoji);
+    try {
+      await send('POST', `/api/instances/${instanceId}/react`, { emoji });
+      props.onChanged();
+    } catch (e) {
+      setMyReaction(prev);
+      toast(errorMessage(e), 'error');
+    }
+  };
+
+  const nudge = async () => {
+    if (!instanceId) return;
+    try {
+      await send('POST', `/api/instances/${instanceId}/nudge`);
+      toast(`Nudged ${nameFor(me, nudgeTo)} 👋`);
+    } catch (e) {
+      toast(errorMessage(e), 'error');
+    }
+  };
+
   return (
     <>
       <Sheet
@@ -91,15 +163,19 @@ export function TodoSheet(props: { todoId: string | null; instanceId?: string | 
         onClose={props.onClose}
         title={d?.todo.title ?? 'Todo'}
         footer={
-          canEdit && d ? (
+          d && (canEdit || d.isOwner) ? (
             <>
-              <button type="button" class="btn danger" onClick={delTodo}>
-                <Icon name="trash" /> Delete
-              </button>
+              {d.isOwner && (
+                <button type="button" class="btn danger" onClick={delTodo}>
+                  <Icon name="trash" /> Delete
+                </button>
+              )}
               <span class="spacer" />
-              <button type="button" class="btn ghost" onClick={() => setEditing(true)}>
-                <Icon name="edit" /> Edit
-              </button>
+              {canEdit && (
+                <button type="button" class="btn ghost" onClick={() => setEditing(true)}>
+                  <Icon name="edit" /> Edit
+                </button>
+              )}
             </>
           ) : undefined
         }
@@ -109,9 +185,7 @@ export function TodoSheet(props: { todoId: string | null; instanceId?: string | 
         {d && (
           <div>
             <div class="row">
-              <span class="chip" data-cat={d.todo.category}>
-                {d.todo.category}
-              </span>
+              <span class="chip">{d.todo.category}</span>
               {d.project && (
                 <span class="chip">
                   <i class="dot" data-color={d.project.color} aria-hidden="true" />
@@ -124,13 +198,20 @@ export function TodoSheet(props: { todoId: string | null; instanceId?: string | 
                   {describeRule(d.todo.recurrence)}
                 </span>
               )}
+              {d.todo.isShared && (
+                <span class="chip plum">
+                  <Icon name="users" />
+                  Shared · for {assigneeLabel(me, d.todo.assignedTo)}
+                </span>
+              )}
               {d.todo.isPrivate && <span class="chip ink">Private</span>}
               {d.suggestedBy && <span class="chip plum">Suggested by {d.suggestedBy}</span>}
+              {me && d.todo.ownerId !== me.user.id && <span class="chip">{nameFor(me, d.todo.ownerId)}'s</span>}
             </div>
 
             <ul class="history mt-4 list-plain">
               <li>
-                <span class="muted">{d.todo.recurrence.type === 'none' ? 'Day' : 'Since'}</span>
+                <span class="muted">{oneOff ? 'Day' : 'Since'}</span>
                 <span>{relativeDay(d.todo.startDate, d.today)}</span>
               </li>
               {d.todo.endDate && (
@@ -151,18 +232,71 @@ export function TodoSheet(props: { todoId: string | null; instanceId?: string | 
                   <span>{prettyTime(d.todo.reminderTime)}</span>
                 </li>
               )}
+              {thisInstance?.status === 'done' && thisInstance.completedBy && (
+                <li>
+                  <span class="muted">Done by</span>
+                  <span>{nameFor(me, thisInstance.completedBy)}</span>
+                </li>
+              )}
             </ul>
 
             {d.todo.notes && <p class="mt-4 notes">{d.todo.notes}</p>}
 
+            {(reactable || nudgeTo) && (
+              <div class="card mt-4 partner-actions">
+                {reactable && (
+                  <div>
+                    <p class="label">React</p>
+                    <div class="emoji-row" role="group" aria-label="React">
+                      {REACTIONS.map((e) => (
+                        <button
+                          key={e}
+                          type="button"
+                          class="emoji-btn"
+                          aria-pressed={myReaction === e}
+                          onClick={() => react(myReaction === e ? null : e)}
+                        >
+                          {e}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {nudgeTo && (
+                  <button type="button" class="btn plum" onClick={nudge}>
+                    <Icon name="hand" /> Nudge {nameFor(me, nudgeTo)}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {canEdit && oneOff && thisInstance && thisInstance.status !== 'done' && (
+              <section class="section">
+                <h3 class="section-title">Move it</h3>
+                <div class="row">
+                  <button type="button" class="btn ghost" onClick={() => reschedule(addDays(d.today, 1))}>
+                    Tomorrow
+                  </button>
+                  <button type="button" class="btn ghost" onClick={() => reschedule(addDays(d.today, 7))}>
+                    Next week
+                  </button>
+                  <label class="sr-only" for="move-date">
+                    Pick a date
+                  </label>
+                  <input id="move-date" class="input date-input" type="date" min={d.today} value={moveTo} onInput={(e) => setMoveTo(e.currentTarget.value)} />
+                  <button type="button" class="btn" disabled={!moveTo} onClick={() => reschedule(moveTo)}>
+                    Move
+                  </button>
+                </div>
+              </section>
+            )}
+
             {d.stats && (
               <div class="card mt-4">
                 <div class="row">
-                  <div>
-                    <div class="streak">
-                      {d.stats.currentStreak}
-                      <small>streak</small>
-                    </div>
+                  <div class="streak">
+                    {d.stats.currentStreak}
+                    <small>streak</small>
                   </div>
                   <span class="spacer" />
                   <div class="faint">
@@ -176,7 +310,11 @@ export function TodoSheet(props: { todoId: string | null; instanceId?: string | 
               <h3 class="section-title">Photos</h3>
               <PhotoGrid photos={todoPhotos} onDelete={canEdit ? delPhoto : undefined} />
               {!todoPhotos.length && !canEdit && <p class="faint">No photos.</p>}
-              {canEdit && <div class="mt-2"><PhotoButtons disabled={busy} onFiles={(f) => addPhotos(f, { todoId: d.todo.id })} /></div>}
+              {canEdit && (
+                <div class="mt-2">
+                  <PhotoButtons disabled={busy} onFiles={(f) => addPhotos(f, { todoId: d.todo.id })} />
+                </div>
+              )}
             </section>
 
             {(proofPhotos.length > 0 || (canEdit && thisInstance?.status === 'done')) && (
@@ -193,6 +331,13 @@ export function TodoSheet(props: { todoId: string | null; instanceId?: string | 
               </section>
             )}
 
+            {d.canComment && (
+              <section class="section">
+                <h3 class="section-title">Comments</h3>
+                <CommentThread todoId={d.todo.id} onChanged={props.onChanged} />
+              </section>
+            )}
+
             {d.todo.recurrence.type !== 'none' && d.instances.length > 0 && (
               <section class="section">
                 <h3 class="section-title">History</h3>
@@ -200,11 +345,14 @@ export function TodoSheet(props: { todoId: string | null; instanceId?: string | 
                   {d.instances.slice(0, 14).map((i) => (
                     <li key={i.id}>
                       <span>{relativeDay(i.date, d.today)}</span>
-                      <span class={`chip ${i.status === 'done' ? 'sage' : i.status === 'missed' ? 'missed' : ''}`}>{i.status}</span>
+                      <span class={`chip ${i.status === 'done' ? 'sage' : i.status === 'missed' ? 'missed' : i.status === 'paused' ? 'sky' : ''}`}>
+                        {i.status}
+                        {i.status === 'done' && i.completedBy && me && i.completedBy !== me.user.id ? ` · ${nameFor(me, i.completedBy)}` : ''}
+                      </span>
                     </li>
                   ))}
                 </ul>
-                {canEdit && !d.todo.endDate && (
+                {d.isOwner && !d.todo.endDate && (
                   <button type="button" class="btn quiet mt-2" onClick={stopRepeating}>
                     Stop repeating after today
                   </button>

@@ -5,6 +5,7 @@ import type { Category, Project, Recurrence, Todo } from '../lib/types';
 import { copy } from '../content/copy';
 import { PhotoButtons, uploadPhotos } from './PhotoPicker';
 import { Sheet, toast } from './ui';
+import { useMe } from './useMe';
 
 const WEEKDAYS = [
   [1, 'M', 'Monday'],
@@ -31,9 +32,13 @@ interface FormState {
   weekdays: number[];
   monthDay: number;
   isPrivate: boolean;
+  isShared: boolean;
+  assignee: 'me' | 'partner' | 'either';
 }
 
-function initialState(today: string, todo?: Todo, defaults?: Partial<FormState>): FormState {
+export type TodoFormDefaults = Partial<FormState>;
+
+function initialState(today: string, todo?: Todo, defaults?: Partial<FormState>, meId?: string): FormState {
   const r = todo?.recurrence;
   return {
     title: todo?.title ?? '',
@@ -48,6 +53,8 @@ function initialState(today: string, todo?: Todo, defaults?: Partial<FormState>)
     weekdays: r?.type === 'weekly' ? r.weekdays : [Number(new Date(`${today}T12:00:00Z`).getUTCDay())],
     monthDay: r?.type === 'monthly' ? r.monthDay : Number(today.slice(8, 10)),
     isPrivate: todo?.isPrivate ?? false,
+    isShared: todo?.isShared ?? false,
+    assignee: !todo?.assignedTo ? 'either' : todo.assignedTo === meId ? 'me' : 'partner',
     ...defaults,
   };
 }
@@ -75,6 +82,7 @@ export function TodoForm(props: {
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const me = useMe();
   const [s, setS] = useState<FormState>(() => initialState(props.today, props.todo, props.defaults));
   const [projects, setProjects] = useState<Project[]>([]);
   const [files, setFiles] = useState<File[]>([]);
@@ -83,13 +91,18 @@ export function TodoForm(props: {
 
   useEffect(() => {
     if (!props.open) return;
-    setS(initialState(props.today, props.todo, props.defaults));
+    setS(initialState(props.today, props.todo, props.defaults, me?.user.id));
     setFiles([]);
     setError(null);
     if (props.mode !== 'suggest') {
       get<{ projects: Project[] }>('/api/projects').then((r) => setProjects(r.projects), () => undefined);
     }
-  }, [props.open, props.todo?.id]);
+  }, [props.open, props.todo?.id, me?.user.id]);
+
+  // On a partner's shared todo you can edit the details, not where it lives or who sees it.
+  const ownerEditing = props.mode !== 'edit' || !props.todo || !me || props.todo.ownerId === me.user.id;
+  const project = projects.find((p) => p.id === s.projectId);
+  const sharedNow = s.isShared || !!project?.isShared;
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setS((prev) => ({ ...prev, [k]: v }));
 
@@ -119,12 +132,20 @@ export function TodoForm(props: {
         const { todo } = await send<{ todo: Todo }>('POST', '/api/todos', {
           ...common,
           projectId: s.projectId || null,
-          isPrivate: s.isPrivate,
+          isPrivate: sharedNow ? false : s.isPrivate,
+          isShared: s.isShared,
+          assignee: s.assignee,
         });
         if (files.length) await uploadPhotos(files, { todoId: todo.id });
         toast('Added');
       } else if (props.todo) {
-        await send('PATCH', `/api/todos/${props.todo.id}`, { ...common, projectId: s.projectId || null, isPrivate: s.isPrivate });
+        await send(
+          'PATCH',
+          `/api/todos/${props.todo.id}`,
+          ownerEditing
+            ? { ...common, projectId: s.projectId || null, isPrivate: sharedNow ? false : s.isPrivate, isShared: s.isShared, assignee: s.assignee }
+            : { ...common, ...(sharedNow ? { assignee: s.assignee } : {}) },
+        );
         toast('Saved');
       }
       props.onSaved();
@@ -182,7 +203,7 @@ export function TodoForm(props: {
           ))}
         </fieldset>
 
-        {props.mode !== 'suggest' && (
+        {props.mode !== 'suggest' && ownerEditing && (
           <div class="field mt-4">
             <label class="label" for="tf-project">
               Project
@@ -301,7 +322,40 @@ export function TodoForm(props: {
           <textarea id="tf-notes" class="textarea" maxLength={5000} value={s.notes} onInput={(e) => set('notes', e.currentTarget.value)} />
         </div>
 
-        {props.mode !== 'suggest' && (
+        {props.mode !== 'suggest' && ownerEditing && me?.partner && !project?.isShared && (
+          <label class="switch mt-4">
+            <span>
+              <strong>Shared with {me.partner.name.split(' ')[0]}</strong>
+              <span class="hint">You both see it, either of you can tick it off.</span>
+            </span>
+            <input
+              type="checkbox"
+              role="switch"
+              checked={s.isShared}
+              onChange={(e) => setS((prev) => ({ ...prev, isShared: e.currentTarget.checked, isPrivate: e.currentTarget.checked ? false : prev.isPrivate }))}
+            />
+          </label>
+        )}
+
+        {props.mode !== 'suggest' && sharedNow && me?.partner && (
+          <fieldset class="segmented mt-4">
+            <legend>Who's on it</legend>
+            {(
+              [
+                ['me', 'Me'],
+                ['partner', me.partner.name.split(' ')[0] ?? 'Partner'],
+                ['either', 'Either of us'],
+              ] as const
+            ).map(([v, l]) => (
+              <label key={v}>
+                <input type="radio" name="tf-assignee" checked={s.assignee === v} onChange={() => set('assignee', v)} />
+                <span>{l}</span>
+              </label>
+            ))}
+          </fieldset>
+        )}
+
+        {props.mode !== 'suggest' && ownerEditing && !sharedNow && (
           <label class="switch mt-4">
             <span>
               <strong>Private</strong>

@@ -10,6 +10,13 @@ export interface OwnedTodo {
   isPrivate: boolean;
   /** Privacy of the todo's project, if any. A private project hides all its todos. */
   projectPrivate?: boolean;
+  /** Shared todos (or todos in a shared project) are editable by both partners. */
+  isShared?: boolean;
+  projectShared?: boolean;
+}
+
+export function isSharedTodo(todo: Pick<OwnedTodo, 'isShared' | 'projectShared'>): boolean {
+  return !!todo.isShared || !!todo.projectShared;
 }
 
 export function normaliseEmail(email: string): string {
@@ -53,9 +60,55 @@ export function canViewTodo(viewer: Viewer, todo: OwnedTodo, ownerPartnerId: str
   return !todo.isPrivate && !todo.projectPrivate;
 }
 
-/** Only owners change their own data. Partners are strictly read-only. */
-export function canEditTodo(viewer: Viewer, todo: Pick<OwnedTodo, 'userId'>): boolean {
-  return viewer.id === todo.userId;
+/** Owners edit their todos; partners may edit only shared ones (never private ones). */
+export function canEditTodo(
+  viewer: Viewer,
+  todo: Pick<OwnedTodo, 'userId'> & Partial<OwnedTodo>,
+  ownerPartnerId: string | null = null,
+): boolean {
+  if (viewer.id === todo.userId) return true;
+  if (todo.isPrivate || todo.projectPrivate) return false;
+  return isSharedTodo(todo) && arePartners(viewer, todo.userId, ownerPartnerId);
+}
+
+/** Comments live on non-private todos only, and only the owner and partner take part. */
+export function canComment(viewer: Viewer, todo: OwnedTodo, ownerPartnerId: string | null): boolean {
+  if (todo.isPrivate || todo.projectPrivate) return false;
+  return canViewTodo(viewer, todo, ownerPartnerId);
+}
+
+/** Reactions: on a done instance someone else completed, of a todo the viewer can see (never private). */
+export function canReact(
+  viewer: Viewer,
+  todo: OwnedTodo,
+  ownerPartnerId: string | null,
+  instance: { status: string; completedBy: string | null },
+): boolean {
+  if (instance.status !== 'done' || todo.isPrivate || todo.projectPrivate) return false;
+  if (!canViewTodo(viewer, todo, ownerPartnerId)) return false;
+  return (instance.completedBy ?? todo.userId) !== viewer.id;
+}
+
+/**
+ * Who a nudge on this todo would go to: the assignee of a shared todo, otherwise the owner.
+ * Returns null when the viewer can't nudge (not visible, private, or it would nudge themselves).
+ */
+export function nudgeTarget(
+  viewer: Viewer,
+  todo: OwnedTodo & { assignedTo?: string | null },
+  ownerPartnerId: string | null,
+  instance: { status: string },
+): string | null {
+  if (instance.status !== 'pending' || todo.isPrivate || todo.projectPrivate) return null;
+  if (!canViewTodo(viewer, todo, ownerPartnerId)) return null;
+  let target: string | null;
+  if (isSharedTodo(todo)) {
+    // "Either of us": nudge the other person.
+    target = todo.assignedTo ?? (todo.userId === viewer.id ? viewer.partnerId : todo.userId);
+  } else {
+    target = todo.userId;
+  }
+  return target && target !== viewer.id ? target : null;
 }
 
 export interface PhotoContext {

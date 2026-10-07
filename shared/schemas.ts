@@ -2,9 +2,9 @@
 import { z } from 'zod';
 import { isValidDate, isValidTimeZone } from './time';
 
-import { CATEGORIES, PROJECT_COLORS } from './constants';
+import { CATEGORIES, PROJECT_COLORS, REACTIONS } from './constants';
 
-export { CATEGORIES, MAX_PHOTO_BYTES, MAX_PHOTOS_PER_TARGET, PHOTO_TYPES, PROJECT_COLORS } from './constants';
+export { CATEGORIES, MAX_PHOTO_BYTES, MAX_PHOTOS_PER_TARGET, PHOTO_TYPES, PROJECT_COLORS, REACTIONS } from './constants';
 
 export const categorySchema = z.enum(CATEGORIES);
 export const dateSchema = z.string().refine(isValidDate, 'Expected a date (YYYY-MM-DD)');
@@ -33,6 +33,10 @@ const todoFields = {
   recurrence: recurrenceSchema.default({ type: 'none' }),
 };
 
+/** Who a shared todo is for, from the creator's point of view. */
+export const assigneeSchema = z.enum(['me', 'partner', 'either']);
+export type Assignee = z.infer<typeof assigneeSchema>;
+
 function endAfterStart(v: { startDate?: string; endDate?: string | null }) {
   return !v.endDate || !v.startDate || v.endDate >= v.startDate;
 }
@@ -42,9 +46,12 @@ export const todoCreateSchema = z
     ...todoFields,
     projectId: idSchema.nullable().default(null),
     isPrivate: z.boolean().default(false),
+    isShared: z.boolean().default(false),
+    assignee: assigneeSchema.default('either'),
   })
   .strict()
-  .refine(endAfterStart, { message: 'End date must be on or after the start date', path: ['endDate'] });
+  .refine(endAfterStart, { message: 'End date must be on or after the start date', path: ['endDate'] })
+  .refine((v) => !(v.isShared && v.isPrivate), { message: 'A todo can be private or shared, not both', path: ['isShared'] });
 export type TodoCreateInput = z.infer<typeof todoCreateSchema>;
 
 export const todoUpdateSchema = z
@@ -59,10 +66,13 @@ export const todoUpdateSchema = z
     recurrence: recurrenceSchema,
     projectId: idSchema.nullable(),
     isPrivate: z.boolean(),
+    isShared: z.boolean(),
+    assignee: assigneeSchema,
   })
   .partial()
   .strict()
-  .refine(endAfterStart, { message: 'End date must be on or after the start date', path: ['endDate'] });
+  .refine(endAfterStart, { message: 'End date must be on or after the start date', path: ['endDate'] })
+  .refine((v) => !(v.isShared && v.isPrivate), { message: 'A todo can be private or shared, not both', path: ['isShared'] });
 export type TodoUpdateInput = z.infer<typeof todoUpdateSchema>;
 
 export const suggestionCreateSchema = z
@@ -86,8 +96,10 @@ export const projectCreateSchema = z
     category: categorySchema,
     color: z.enum(PROJECT_COLORS).default('clay'),
     isPrivate: z.boolean().default(false),
+    isShared: z.boolean().default(false),
   })
-  .strict();
+  .strict()
+  .refine((v) => !(v.isShared && v.isPrivate), { message: 'A project can be private or shared, not both', path: ['isShared'] });
 
 export const projectUpdateSchema = z
   .object({
@@ -96,15 +108,17 @@ export const projectUpdateSchema = z
     category: categorySchema,
     color: z.enum(PROJECT_COLORS),
     isPrivate: z.boolean(),
+    isShared: z.boolean(),
     archived: z.boolean(),
   })
   .partial()
-  .strict();
+  .strict()
+  .refine((v) => !(v.isShared && v.isPrivate), { message: 'A project can be private or shared, not both', path: ['isShared'] });
 
 export const completeSchema = z.object({ note: z.string().max(1000).default('') }).strict();
 
 export const meUpdateSchema = z
-  .object({ name: z.string().trim().min(1).max(80), timezone: timezoneSchema })
+  .object({ name: z.string().trim().min(1).max(80), timezone: timezoneSchema, wrapupTime: timeSchema.nullable() })
   .partial()
   .strict();
 
@@ -138,3 +152,13 @@ export const photoUploadFieldsSchema = z.object({
   width: z.coerce.number().int().min(1).max(10000).optional(),
   height: z.coerce.number().int().min(1).max(10000).optional(),
 });
+
+export const reactSchema = z.object({ emoji: z.enum(REACTIONS).nullable() }).strict();
+
+export const commentCreateSchema = z
+  .object({ body: z.string().trim().min(1, 'Write something first').max(1000, 'Keep comments under 1000 characters') })
+  .strict();
+
+export const rescheduleSchema = z.object({ date: dateSchema }).strict();
+
+export const snoozeSchema = z.object({ minutes: z.number().int().min(5).max(24 * 60).default(60) }).strict();

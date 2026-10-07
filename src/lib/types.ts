@@ -23,6 +23,8 @@ export interface Me {
   vapidPublicKey: string | null;
   today: string;
   pendingSuggestions: number;
+  wrapupTime: string | null;
+  serverNow: number;
 }
 
 export interface ProjectRef {
@@ -34,6 +36,7 @@ export interface ProjectRef {
 export interface DayItem {
   instanceId: string | null;
   todoId: string;
+  ownerId: string;
   date: string;
   title: string;
   notes: string;
@@ -45,8 +48,16 @@ export interface DayItem {
   carriedOverFrom: string | null;
   recurrence: Recurrence;
   isPrivate: boolean;
+  isShared: boolean;
+  assignedTo: string | null;
+  completedBy: string | null;
+  canEdit: boolean;
   suggestedBy: string | null;
   photoCount: number;
+  commentCount: number;
+  reactions: { userId: string; emoji: string }[];
+  /** Checklist progress for this occurrence (phase 2). */
+  subtasks?: { done: number; total: number } | null;
   streak: number | null;
 }
 
@@ -71,6 +82,8 @@ export interface Project {
   category: Category;
   color: string;
   isPrivate: boolean;
+  isShared: boolean;
+  ownerId: string;
   archived: boolean;
   createdAt: number;
 }
@@ -82,10 +95,13 @@ export interface ProjectSummary extends Project {
 
 export interface ProjectTodo {
   todoId: string;
+  ownerId: string;
   title: string;
   category: Category;
   recurrence: Recurrence;
   isPrivate: boolean;
+  isShared: boolean;
+  canEdit: boolean;
   dueTime: string | null;
   startDate: string;
   instanceId: string | null;
@@ -97,17 +113,22 @@ export interface ProjectTodo {
 export interface ProjectDetail {
   today: string;
   project: Project;
+  canManage: boolean;
+  canAdd: boolean;
   progress: { done: number; total: number };
   todos: ProjectTodo[];
 }
 
 export interface Habit {
   todoId: string;
+  ownerId: string;
   title: string;
   category: Category;
   recurrence: Recurrence;
   project: ProjectRef | null;
   isPrivate: boolean;
+  isShared: boolean;
+  canEdit: boolean;
   stats: HabitStats;
   todayInstanceId: string | null;
   todayStatus: InstanceStatus | null;
@@ -127,6 +148,9 @@ export interface Todo {
   reminderTime: string | null;
   recurrence: Recurrence;
   isPrivate: boolean;
+  isShared: boolean;
+  assignedTo: string | null;
+  ownerId: string;
   suggestedBy: string | null;
   createdAt: number;
 }
@@ -144,11 +168,13 @@ export interface Photo {
 export interface TodoDetail {
   todo: Todo;
   canEdit: boolean;
+  isOwner: boolean;
+  canComment: boolean;
   today: string;
   project: Project | null;
   suggestedBy: string | null;
   photos: Photo[];
-  instances: { id: string; date: string; status: InstanceStatus; completedAt: number | null; note: string }[];
+  instances: { id: string; date: string; status: InstanceStatus; completedAt: number | null; completedBy: string | null; note: string }[];
   stats: HabitStats | null;
 }
 
@@ -178,4 +204,14 @@ export interface Invite {
   joined: boolean;
   name: string | null;
   lastLoginAt: number | null;
+}
+
+export interface Comment {
+  id: string;
+  authorId: string;
+  authorName: string;
+  authorAvatar: string | null;
+  body: string;
+  createdAt: number;
+  mine: boolean;
 }

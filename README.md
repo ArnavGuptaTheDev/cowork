@@ -141,3 +141,29 @@ Then sign in at https://cowork.arnavg.me with the `SUPER_ADMIN_EMAIL` account, o
 - **Web Push without dependencies.** RFC 8291 encryption and VAPID signing use WebCrypto (`shared/webpush.ts`), so they run in Workers. A round-trip test decrypts the payload as a browser would.
 - **TypeScript 6.** TypeScript 7 is out, but `@astrojs/check` doesn't support it yet.
 - **Local dev login.** `/api/auth/dev-login` exists only to test two accounts locally. It requires `DEV_LOGIN=true` and a localhost URL, and still enforces invites.
+
+### Partner interaction (phase 1)
+
+- **Shared todos and projects.** "Shared" is a flag on a todo or a project, and a todo in a shared project is shared too. Shared items appear in both partners' Today, Week, Month, Habits and Projects lists. Either partner can edit and complete them, and the instance records `completed_by`. Recurring shared todos follow the creator's time zone and calendar day.
+- **What the partner can't do on a shared todo:** move it to another project, make it private, unshare it, or delete it. Only the creator can, so a todo never disappears on someone else's say-so.
+- **Shared vs private.** A todo or project can't be both. A project can't be shared while it holds private todos (the API returns 409 until you move them or make them non-private).
+- **Assignee.** `assigned_to` stores a user id, or NULL for "either of us". The UI's "me / partner / either" is relative to whoever is editing. Reminders go to the assignee, or to both of you for "either".
+- **Unpairing** turns shared todos and projects into normal ones owned by their creator, clears assignees, and takes any todo one partner had put in the other's project out of that project.
+- **Reactions.** One reaction per person per completion, from a fixed set (❤️ 🔥 👏 💪 🎉 😂). You can only react to a completion someone else made, on a todo you can see, never a private one.
+- **Nudges.** A nudge goes to the person responsible: the owner, or the assignee of a shared todo ("either" means the other person). You can send one per todo per 3 hours (HTTP 429 with the wait time). Done and private todos can't be nudged.
+- **Comments** exist only on non-private todos (including todos not in a private project), for owner and partner. Each new comment pushes the other person. Authors can delete only their own comments.
+- **Evening wrap-up.** `users.wrapup_time` defaults to 21:00 (NULL = off). The cron sends it once per local day within an hour of that time; `wrapup_sent_on` is claimed first, so overlapping runs can't double-send. Nothing is sent on an empty day. The partner's count leaves out their private todos.
+- **Wrap-up actions.**
+  - "Drop" deletes a one-off todo, and only its creator sees that action.
+  - For a repeating todo it becomes "Skip today", which marks the occurrence missed.
+  - "Tomorrow" and "Pick a date" exist only for one-off todos, because repeating todos follow their rule.
+- **Quick add** (`shared/quickadd.ts`) is dependency-free and runs entirely in the browser.
+  - **Weekday names:** a bare weekday ("fri") means the next one, never today. "next fri" means the Friday of next week (weeks run Monday to Sunday).
+  - **Date order:** "12/10" is day/month. A date with no year rolls into next year once it's past.
+  - **"at 7" without am/pm:** 1–6 means afternoon or evening, 7–11 means morning.
+  - **Category:** a repeating quick add defaults to the habit category.
+  - **Projects:** `#name` matches an exact name first, then a prefix, then a substring.
+  - **"for partner"** turns the quick add into a suggestion.
+- **Notification actions.** Reminder pushes carry Done / Snooze 1h, plus Tomorrow on one-off todos.
+  - **How they run:** the service worker performs them with the session cookie and a CSRF token fetched from `/api/me`, so the normal CSRF rules apply.
+  - **Fallback:** if an action fails (signed out, offline), or the platform has no action buttons, the tap opens `/today?todo=<id>` with that todo's sheet open.

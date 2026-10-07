@@ -66,6 +66,7 @@ export default function SettingsIsland() {
       </header>
       <Profile me={me} onSaved={state.reload} />
       <Appearance />
+      <Wrapup me={me} />
       <Notifications me={me} />
       <Pairing me={me} onChanged={state.reload} />
       <section class="section card">
@@ -162,6 +163,58 @@ function Profile({ me, onSaved }: { me: Me; onSaved: () => void }) {
         </button>
       </div>
     </form>
+  );
+}
+
+function Wrapup({ me }: { me: Me }) {
+  const [on, setOn] = useState(me.wrapupTime !== null);
+  const [time, setTime] = useState(me.wrapupTime ?? '21:00');
+  const save = async (enabled: boolean, t: string) => {
+    try {
+      await send('PATCH', '/api/me', { wrapupTime: enabled ? t : null });
+      await getMe(true);
+      toast(enabled ? `Wrap-up at ${t}` : 'Wrap-up off');
+    } catch (e) {
+      toast(errorMessage(e), 'error');
+    }
+  };
+  return (
+    <section class="section card">
+      <h2 class="section-title">Evening wrap-up</h2>
+      <p class="faint">One push at the end of the day with what's done, what's left and how your partner did. Tap it to tidy up leftovers.</p>
+      <label class="switch mt-2">
+        <span>Send a wrap-up</span>
+        <input
+          type="checkbox"
+          role="switch"
+          checked={on}
+          onChange={(e) => {
+            setOn(e.currentTarget.checked);
+            void save(e.currentTarget.checked, time);
+          }}
+        />
+      </label>
+      {on && (
+        <div class="field mt-2">
+          <label class="label" for="wrapup-time">
+            At
+          </label>
+          <input
+            id="wrapup-time"
+            class="input"
+            type="time"
+            value={time}
+            onChange={(e) => {
+              setTime(e.currentTarget.value);
+              if (e.currentTarget.value) void save(true, e.currentTarget.value);
+            }}
+          />
+        </div>
+      )}
+      <a class="btn quiet mt-2" href="/wrapup">
+        Open today's wrap-up
+      </a>
+    </section>
   );
 }
 

@@ -14,6 +14,9 @@ export interface PushMessage {
   /** Path inside the app to open when the notification is tapped. */
   url: string;
   tag?: string;
+  /** Reminder pushes: the instance the service worker's action buttons act on. */
+  instanceId?: string;
+  actions?: { action: string; title: string }[];
 }
 
 interface SubRow {

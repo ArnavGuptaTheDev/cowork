@@ -4,13 +4,20 @@ import { addDays, localDate, maxDate, zonedToUtc } from '../../shared/time';
 import type { TodoCreateInput, TodoUpdateInput } from '../../shared/schemas';
 import { runBatch, type InstanceRow, type ProjectRow, type TodoRow, type UserRow } from '../db';
 import type { Env } from '../env';
-import { badRequest, notFound } from '../http';
+import { badRequest, forbidden, notFound } from '../http';
+import { editableTodo, getPartner, todoAccess, type TodoAccess } from './access';
 import { deletePhotoObjects } from './photos';
+
+export type { TodoAccess };
+
+/** Create input; the sharing fields are optional for internal callers (suggestions, templates). */
+export type CreateTodoInput = Omit<TodoCreateInput, 'isShared' | 'assignee'> &
+  Partial<Pick<TodoCreateInput, 'isShared' | 'assignee'>>;
 
 /** How far back the materialiser will fill gaps (e.g. after nobody opened the app for a while). */
 export const MAX_BACKFILL_DAYS = 366;
 
-function reminderAt(date: string, reminderTime: string | null, timeZone: string): number | null {
+export function reminderAt(date: string, reminderTime: string | null, timeZone: string): number | null {
   return reminderTime ? zonedToUtc(date, reminderTime, timeZone) : null;
 }
 
@@ -78,13 +85,23 @@ export async function materializeUser(db: D1Database, user: UserRow, now: number
   return today;
 }
 
-async function assertOwnProject(db: D1Database, userId: string, projectId: string | null): Promise<void> {
-  if (!projectId) return;
-  const p = await db
-    .prepare('SELECT id FROM projects WHERE id = ? AND user_id = ? AND archived_at IS NULL')
-    .bind(projectId, userId)
-    .first<Pick<ProjectRow, 'id'>>();
-  if (!p) throw badRequest('That project does not exist');
+/** A project the user may put todos in: their own, or their partner's shared project. */
+export async function usableProject(db: D1Database, user: UserRow, projectId: string | null): Promise<ProjectRow | null> {
+  if (!projectId) return null;
+  const p = await db.prepare('SELECT * FROM projects WHERE id = ? AND archived_at IS NULL').bind(projectId).first<ProjectRow>();
+  if (p && p.user_id === user.id) return p;
+  if (p && p.is_shared === 1) {
+    const partner = await getPartner(db, user);
+    if (partner && partner.id === p.user_id) return p;
+  }
+  throw badRequest('That project does not exist');
+}
+
+/** Maps a creator-relative assignee ("me" / "partner" / "either") to a user id (null = either of us). */
+function assigneeId(actor: UserRow, otherId: string | null, assignee: 'me' | 'partner' | 'either' | undefined): string | null {
+  if (assignee === 'me') return actor.id;
+  if (assignee === 'partner') return otherId;
+  return null;
 }
 
 function validateRule(rule: Recurrence): void {
@@ -94,13 +111,17 @@ function validateRule(rule: Recurrence): void {
 export async function createTodo(
   env: Env,
   user: UserRow,
-  input: TodoCreateInput,
+  input: CreateTodoInput,
   now: number,
-  extra: { suggestedBy?: string | null } = {},
+  extra: { suggestedBy?: string | null; id?: string } = {},
 ): Promise<string> {
   validateRule(input.recurrence);
-  await assertOwnProject(env.DB, user.id, input.projectId);
-  const id = crypto.randomUUID();
+  const project = await usableProject(env.DB, user, input.projectId);
+  const shared = !!input.isShared || project?.is_shared === 1;
+  const partner = shared ? await getPartner(env.DB, user) : null;
+  if (input.isShared && !partner) throw badRequest('Pair with your partner to share todos');
+  if (shared && input.isPrivate) throw badRequest('A todo can be private or shared, not both');
+  const id = extra.id ?? crypto.randomUUID();
   const cols = ruleToColumns(input.recurrence);
   const today = localDate(now, user.timezone);
   const recurring = input.recurrence.type !== 'none';
@@ -119,6 +140,8 @@ export async function createTodo(
     reminder_time: input.reminderTime,
     ...cols,
     is_private: input.isPrivate ? 1 : 0,
+    is_shared: input.isShared ? 1 : 0,
+    assigned_to: shared ? assigneeId(user, partner?.id ?? null, input.assignee) : null,
     suggested_by: extra.suggestedBy ?? null,
     materialized_through: materializedThrough,
     created_at: now,
@@ -127,12 +150,13 @@ export async function createTodo(
   const stmts: D1PreparedStatement[] = [
     env.DB.prepare(
       `INSERT INTO todos (id, user_id, project_id, title, notes, category, start_date, end_date, due_time, reminder_time,
-         recurrence, recurrence_weekdays, recurrence_month_day, is_private, suggested_by, materialized_through, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         recurrence, recurrence_weekdays, recurrence_month_day, is_private, is_shared, assigned_to, suggested_by,
+         materialized_through, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
       row.id, row.user_id, row.project_id, row.title, row.notes, row.category, row.start_date, row.end_date,
       row.due_time, row.reminder_time, row.recurrence, row.recurrence_weekdays, row.recurrence_month_day,
-      row.is_private, row.suggested_by, row.materialized_through, row.created_at, row.updated_at,
+      row.is_private, row.is_shared, row.assigned_to, row.suggested_by, row.materialized_through, row.created_at, row.updated_at,
     ),
   ];
   if (!recurring) {
@@ -155,14 +179,41 @@ export async function getOwnTodo(db: D1Database, userId: string, todoId: string)
   return t;
 }
 
-export async function updateTodo(env: Env, user: UserRow, todoId: string, patch: TodoUpdateInput, now: number) {
+/**
+ * Edits a todo. The owner may change anything; on a shared todo the partner may change everything except
+ * where it lives and who sees it (project, privacy, sharing). Schedules always follow the owner's time zone.
+ */
+export async function updateTodo(env: Env, editor: UserRow, todoId: string, patch: TodoUpdateInput, now: number) {
   const db = env.DB;
-  const old = await getOwnTodo(db, user.id, todoId);
+  const access = await editableTodo(db, editor, todoId);
+  const { todo: old, owner } = access;
+  if (!access.isOwner) {
+    const ownerOnly =
+      (patch.projectId !== undefined && patch.projectId !== old.project_id) ||
+      (patch.isPrivate !== undefined && (patch.isPrivate ? 1 : 0) !== old.is_private) ||
+      (patch.isShared !== undefined && (patch.isShared ? 1 : 0) !== old.is_shared);
+    if (ownerOnly) throw forbidden('Only the person who created this todo can move it, share it or make it private');
+  }
   if (patch.recurrence) validateRule(patch.recurrence);
-  if (patch.projectId !== undefined) await assertOwnProject(db, user.id, patch.projectId);
+  const project = patch.projectId !== undefined ? await usableProject(db, owner, patch.projectId) : access.project;
+  const ownerPartner = await getPartner(db, owner);
 
   const rule = patch.recurrence ?? ruleFromColumns(old);
   const recurring = rule.type !== 'none';
+  const isShared = patch.isShared !== undefined ? (patch.isShared ? 1 : 0) : old.is_shared;
+  const isPrivate = patch.isPrivate !== undefined ? (patch.isPrivate ? 1 : 0) : old.is_private;
+  const shared = isShared === 1 || project?.is_shared === 1;
+  if (isShared === 1 && !ownerPartner) throw badRequest('Pair with your partner to share todos');
+  if (shared && isPrivate === 1) throw badRequest('A todo can be private or shared, not both');
+
+  // The assignee is relative to whoever is editing.
+  let assignedTo = old.assigned_to;
+  if (patch.assignee !== undefined) {
+    const other = editor.id === owner.id ? (ownerPartner?.id ?? null) : owner.id;
+    assignedTo = assigneeId(editor, other, patch.assignee);
+  }
+  if (!shared) assignedTo = null;
+
   const next: TodoRow = {
     ...old,
     title: patch.title ?? old.title,
@@ -174,7 +225,9 @@ export async function updateTodo(env: Env, user: UserRow, todoId: string, patch:
     due_time: patch.dueTime !== undefined ? patch.dueTime : old.due_time,
     reminder_time: patch.reminderTime !== undefined ? patch.reminderTime : old.reminder_time,
     ...ruleToColumns(rule),
-    is_private: patch.isPrivate !== undefined ? (patch.isPrivate ? 1 : 0) : old.is_private,
+    is_private: isPrivate,
+    is_shared: isShared,
+    assigned_to: assignedTo,
     updated_at: now,
   };
   if (next.end_date && next.end_date < next.start_date) throw badRequest('End date must be on or after the start date');
@@ -187,7 +240,7 @@ export async function updateTodo(env: Env, user: UserRow, todoId: string, patch:
     next.recurrence_weekdays !== old.recurrence_weekdays ||
     next.recurrence_month_day !== old.recurrence_month_day;
 
-  const today = localDate(now, user.timezone);
+  const today = localDate(now, owner.timezone);
   const stmts: D1PreparedStatement[] = [];
   const wasRecurring = old.recurrence !== 'none';
 
@@ -198,7 +251,7 @@ export async function updateTodo(env: Env, user: UserRow, todoId: string, patch:
         db.prepare(
           `UPDATE OR IGNORE todo_instances SET date = ?, reminder_at = ?, reminded_at = NULL
             WHERE id = (SELECT id FROM todo_instances WHERE todo_id = ? ORDER BY date DESC LIMIT 1)`,
-        ).bind(next.start_date, reminderAt(next.start_date, next.reminder_time, user.timezone), todoId),
+        ).bind(next.start_date, reminderAt(next.start_date, next.reminder_time, owner.timezone), todoId),
       );
     } else if (!recurring) {
       // Recurring -> one-off: keep done/missed history, drop pending, add the single occurrence.
@@ -207,7 +260,7 @@ export async function updateTodo(env: Env, user: UserRow, todoId: string, patch:
         db.prepare(
           `INSERT OR IGNORE INTO todo_instances (id, todo_id, user_id, date, status, reminder_at, created_at)
            VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
-        ).bind(crypto.randomUUID(), todoId, user.id, next.start_date, reminderAt(next.start_date, next.reminder_time, user.timezone), now),
+        ).bind(crypto.randomUUID(), todoId, owner.id, next.start_date, reminderAt(next.start_date, next.reminder_time, owner.timezone), now),
       );
       next.materialized_through = null;
     } else {
@@ -227,19 +280,20 @@ export async function updateTodo(env: Env, user: UserRow, todoId: string, patch:
     db.prepare(
       `UPDATE todos SET project_id = ?, title = ?, notes = ?, category = ?, start_date = ?, end_date = ?, due_time = ?,
          reminder_time = ?, recurrence = ?, recurrence_weekdays = ?, recurrence_month_day = ?, is_private = ?,
-         materialized_through = ?, updated_at = ?
-       WHERE id = ? AND user_id = ?`,
+         is_shared = ?, assigned_to = ?, materialized_through = ?, updated_at = ?
+       WHERE id = ?`,
     ).bind(
       next.project_id, next.title, next.notes, next.category, next.start_date, next.end_date, next.due_time,
       next.reminder_time, next.recurrence, next.recurrence_weekdays, next.recurrence_month_day, next.is_private,
-      next.materialized_through, now, todoId, user.id,
+      next.is_shared, next.assigned_to, next.materialized_through, now, todoId,
     ),
   );
-  if (scheduleChanged && recurring) stmts.push(...materializeStatements(db, user, [next], today, now));
+  if (scheduleChanged && recurring) stmts.push(...materializeStatements(db, owner, [next], today, now));
   await runBatch(db, stmts);
   return next;
 }
 
+/** Only the creator deletes a todo, shared or not. */
 export async function deleteTodo(env: Env, userId: string, todoId: string): Promise<void> {
   await getOwnTodo(env.DB, userId, todoId);
   const { results } = await env.DB.prepare('SELECT r2_key FROM photos WHERE todo_id = ?')
@@ -253,40 +307,86 @@ export interface InstanceWithTodo extends InstanceRow {
   recurrence: TodoRow['recurrence'];
 }
 
-export async function getOwnInstance(db: D1Database, userId: string, instanceId: string): Promise<InstanceWithTodo> {
-  const i = await db
-    .prepare(
-      `SELECT i.*, t.recurrence FROM todo_instances i JOIN todos t ON t.id = i.todo_id
-        WHERE i.id = ? AND i.user_id = ?`,
-    )
-    .bind(instanceId, userId)
+async function loadInstance(db: D1Database, instanceId: string): Promise<InstanceWithTodo> {
+  const inst = await db
+    .prepare(`SELECT i.*, t.recurrence FROM todo_instances i JOIN todos t ON t.id = i.todo_id WHERE i.id = ?`)
+    .bind(instanceId)
     .first<InstanceWithTodo>();
-  if (!i) throw notFound('Todo not found');
-  return i;
+  if (!inst) throw notFound('Todo not found');
+  return inst;
 }
 
-export async function completeInstance(env: Env, user: UserRow, instanceId: string, note: string, now: number) {
-  const inst = await getOwnInstance(env.DB, user.id, instanceId);
-  const today = localDate(now, user.timezone);
+/** An instance the actor may act on (their own, or one of a shared todo), with the todo's access info. */
+export async function actionableInstance(db: D1Database, actor: UserRow, instanceId: string) {
+  const inst = await loadInstance(db, instanceId);
+  const access = await todoAccess(db, actor, inst.todo_id);
+  if (!access || !access.canEdit) throw notFound('Todo not found');
+  return { inst, access };
+}
+
+/** An instance the viewer can see (reactions, nudges). */
+export async function visibleInstance(db: D1Database, viewer: UserRow, instanceId: string) {
+  const inst = await loadInstance(db, instanceId);
+  const access = await todoAccess(db, viewer, inst.todo_id);
+  if (!access) throw notFound('Todo not found');
+  return { inst, access };
+}
+
+export async function completeInstance(env: Env, actor: UserRow, instanceId: string, note: string, now: number) {
+  const { inst, access } = await actionableInstance(env.DB, actor, instanceId);
+  const today = localDate(now, access.owner.timezone);
   if (inst.recurrence !== 'none' && inst.date > today) throw badRequest("You can't complete a future occurrence yet");
   await env.DB.prepare(
-    `UPDATE todo_instances SET status = 'done', completed_at = ?, completed_on = ?, note = ? WHERE id = ?`,
+    `UPDATE todo_instances SET status = 'done', completed_at = ?, completed_on = ?, completed_by = ?, note = ? WHERE id = ?`,
   )
-    .bind(now, today, note, instanceId)
+    .bind(now, today, actor.id, note, instanceId)
     .run();
-  return { ...inst, status: 'done' as const, completed_at: now, completed_on: today, note };
+  return {
+    inst: { ...inst, status: 'done' as const, completed_at: now, completed_on: today, completed_by: actor.id, note },
+    access,
+  };
 }
 
-export async function uncompleteInstance(env: Env, user: UserRow, instanceId: string, now: number) {
-  const inst = await getOwnInstance(env.DB, user.id, instanceId);
-  const today = localDate(now, user.timezone);
+export async function uncompleteInstance(env: Env, actor: UserRow, instanceId: string, now: number) {
+  const { inst, access } = await actionableInstance(env.DB, actor, instanceId);
+  const today = localDate(now, access.owner.timezone);
   const status = inst.recurrence !== 'none' && inst.date < today ? 'missed' : 'pending';
   await env.DB.prepare(
-    `UPDATE todo_instances SET status = ?, completed_at = NULL, completed_on = NULL WHERE id = ?`,
+    `UPDATE todo_instances SET status = ?, completed_at = NULL, completed_on = NULL, completed_by = NULL WHERE id = ?`,
   )
     .bind(status, instanceId)
     .run();
-  return { ...inst, status };
+  return { inst: { ...inst, status }, access };
+}
+
+/** Moves a pending one-off todo to another day (wrap-up, calendar drag, the notification's "Tomorrow"). */
+export async function rescheduleInstance(env: Env, actor: UserRow, instanceId: string, date: string, now: number) {
+  const { inst, access } = await actionableInstance(env.DB, actor, instanceId);
+  if (inst.recurrence !== 'none') throw badRequest('Repeating todos follow their schedule. Edit the todo to change it');
+  if (inst.status === 'done') throw badRequest('That one is already done');
+  const reminder = reminderAt(date, access.todo.reminder_time, access.owner.timezone);
+  await env.DB.batch([
+    env.DB.prepare(`UPDATE todo_instances SET date = ?, reminder_at = ?, reminded_at = NULL WHERE id = ?`).bind(date, reminder, instanceId),
+    env.DB.prepare(`UPDATE todos SET start_date = ?, updated_at = ? WHERE id = ?`).bind(date, now, inst.todo_id),
+  ]);
+  return { inst: { ...inst, date }, access };
+}
+
+/** Skips an open occurrence of a repeating todo (marks it missed). */
+export async function skipInstance(env: Env, actor: UserRow, instanceId: string) {
+  const { inst } = await actionableInstance(env.DB, actor, instanceId);
+  if (inst.recurrence === 'none') throw badRequest('Only repeating todos can be skipped');
+  if (inst.status !== 'pending') throw badRequest('Only open todos can be skipped');
+  await env.DB.prepare(`UPDATE todo_instances SET status = 'missed' WHERE id = ?`).bind(instanceId).run();
+}
+
+/** Pushes an instance's reminder later (the notification's "Snooze"). */
+export async function snoozeInstance(env: Env, actor: UserRow, instanceId: string, minutes: number, now: number) {
+  const { inst } = await actionableInstance(env.DB, actor, instanceId);
+  if (inst.status !== 'pending') throw badRequest('Only open todos can be snoozed');
+  const at = now + minutes * 60_000;
+  await env.DB.prepare(`UPDATE todo_instances SET reminder_at = ?, reminded_at = NULL WHERE id = ?`).bind(at, instanceId).run();
+  return at;
 }
 
 /** Recomputes reminder times of upcoming pending instances, e.g. after a time-zone change. */

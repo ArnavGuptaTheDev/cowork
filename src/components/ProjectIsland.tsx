@@ -22,8 +22,9 @@ export default function ProjectIsland() {
   const [openTodo, setOpenTodo] = useState<ProjectTodo | null>(null);
   useEffect(() => setParams(params()), []);
 
-  const state = useLoad(async () => (id ? get<ProjectDetail>(`/api/projects/${id}?who=${who}`) : null), [id, who]);
-  const readOnly = who === 'partner';
+  const state = useLoad(async () => (id ? get<ProjectDetail>(`/api/projects/${id}`) : null), [id, who]);
+  const readOnly = !state.data?.canManage;
+  const canAdd = !!state.data?.canAdd;
 
   if (!params_) return <Loading />;
   if (!id) return <ErrorBox message="No project selected." />;
@@ -85,6 +86,14 @@ export default function ProjectIsland() {
         <ProgressRing done={d.progress.done} total={d.progress.total} />
       </header>
 
+      {canAdd && readOnly && (
+        <div class="row">
+          <button type="button" class="btn" onClick={() => setAdding(true)}>
+            <Icon name="plus" /> Add todo
+          </button>
+          <span class="chip plum">Shared project</span>
+        </div>
+      )}
       {!readOnly && (
         <div class="row">
           <button type="button" class="btn" onClick={() => setAdding(true)}>
@@ -118,7 +127,7 @@ export default function ProjectIsland() {
           <ul class="todo-list">
             {oneOff.map((t) => (
               <li key={t.todoId} class={`todo ${t.status === 'done' ? 'is-done' : ''}`} data-category={t.category}>
-                <Check checked={t.status === 'done'} label={`Mark ${t.status === 'done' ? 'not done' : 'done'}: ${t.title}`} disabled={readOnly || !t.instanceId} onToggle={() => toggle(t)} />
+                <Check checked={t.status === 'done'} label={`Mark ${t.status === 'done' ? 'not done' : 'done'}: ${t.title}`} disabled={!t.canEdit || !t.instanceId} onToggle={() => toggle(t)} />
                 <button type="button" class="todo-body" onClick={() => setOpenTodo(t)}>
                   <div class="todo-title">{t.title}</div>
                   <div class="todo-meta">
@@ -169,9 +178,11 @@ export default function ProjectIsland() {
         </section>
       )}
 
+      {canAdd && (
+        <TodoForm open={adding} mode="create" today={d.today} defaults={{ projectId: d.project.id, category: d.project.category }} onClose={() => setAdding(false)} onSaved={state.reload} />
+      )}
       {!readOnly && (
         <>
-          <TodoForm open={adding} mode="create" today={d.today} defaults={{ projectId: d.project.id, category: d.project.category }} onClose={() => setAdding(false)} onSaved={state.reload} />
           <ProjectForm open={editing} project={d.project} onClose={() => setEditing(false)} onSaved={() => state.reload()} />
         </>
       )}
