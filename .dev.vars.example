@@ -1,0 +1,23 @@
+# Local secrets for `wrangler pages dev`. Copy to .dev.vars (gitignored) and fill in real values.
+# Production values are set with `wrangler pages secret put` (see README). Never commit real values.
+
+# Google OAuth client (Web application). Redirect URI for local dev: http://localhost:8788/api/auth/google/callback
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-client-secret
+
+# 32+ random characters. Generate with: node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+SESSION_SECRET=replace-with-at-least-32-random-characters
+
+# Web Push keys. Generate with: npm run vapid
+VAPID_PUBLIC_KEY=replace-with-vapid-public-key
+VAPID_PRIVATE_KEY=replace-with-vapid-private-key
+
+# The only email that can sign in before anyone is invited.
+SUPER_ADMIN_EMAIL=you@example.com
+
+# Local development only: enables /api/auth/dev-login?email=... on localhost so you can test as two users
+# without two Google accounts. Never set this in Cloudflare.
+DEV_LOGIN=true
+
+# Override the public origin for local push links (optional).
+APP_ORIGIN=http://localhost:8788

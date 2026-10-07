@@ -1,0 +1,33 @@
+// 24x24 stroke icons (shared by Astro and Preact). Each value is the inner SVG markup.
+export const icons = {
+  check: '<path d="M5 12.5l4.2 4.2L19 7"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  x: '<path d="M6 6l12 12M18 6L6 18"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  bell: '<path d="M6 16V11a6 6 0 1112 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 004 0"/>',
+  repeat: '<path d="M4 12a7 7 0 0112-5l2 2"/><path d="M18 4v5h-5"/><path d="M20 12a7 7 0 01-12 5l-2-2"/><path d="M6 20v-5h5"/>',
+  lock: '<rect x="5" y="11" width="14" height="9.5" rx="2.5"/><path d="M8 11V8a4 4 0 018 0v3"/>',
+  heart: '<path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0112 7.1a4.3 4.3 0 017.5 2.7C19.5 15.4 12 20 12 20z"/>',
+  camera: '<path d="M4 8.5A2.5 2.5 0 016.5 6h1.8l1.4-2h4.6l1.4 2h1.8A2.5 2.5 0 0120 8.5v9a2.5 2.5 0 01-2.5 2.5h-11A2.5 2.5 0 014 17.5z"/><circle cx="12" cy="13" r="3.5"/>',
+  image: '<rect x="4" y="4.5" width="16" height="15" rx="2.5"/><circle cx="9" cy="9.5" r="1.6"/><path d="M20 15.5l-4.5-4.5L6 19.5"/>',
+  flame: '<path d="M12 21c-3.9 0-6.5-2.6-6.5-6.2 0-3.3 2.4-5.2 3.6-8.3.4 1.8 1.5 2.9 2.6 3.4.2-2.8 1.6-5.3 3.8-6.9-.2 2.9 2.9 5.5 2.9 10 0 4.6-2.5 8-6.4 8z"/>',
+  left: '<path d="M14.5 6l-6 6 6 6"/>',
+  right: '<path d="M9.5 6l6 6-6 6"/>',
+  folder: '<path d="M3.5 7.5A2 2 0 015.5 5.5h4l2 2.2h7a2 2 0 012 2v8.3a2 2 0 01-2 2h-13a2 2 0 01-2-2z"/>',
+  trash: '<path d="M5 7h14M10 7V5h4v2M7 7l1 12.5h8L17 7"/>',
+  edit: '<path d="M5 19l1-4.2L15.6 5.2a2 2 0 012.8 0l.4.4a2 2 0 010 2.8L9.2 18z"/><path d="M5 19h4.2"/>',
+  users: '<circle cx="9" cy="8.5" r="3.5"/><path d="M2.5 19.5c.8-3.4 3.4-5.2 6.5-5.2s5.7 1.8 6.5 5.2"/><circle cx="17" cy="9" r="2.8"/><path d="M16.2 14.4c2.6-.3 4.6 1.2 5.3 4.1"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M4.2 7.5l2.1 1.2M17.7 15.3l2.1 1.2M4.2 16.5l2.1-1.2M17.7 8.7l2.1-1.2"/><circle cx="12" cy="12" r="7"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6L6 6M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4L6 18M18 6l1.4-1.4"/>',
+  today: '<rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/><circle cx="12" cy="15" r="1.6" fill="currentColor"/>',
+  week: '<rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4M7.5 14h2M11 14h2M14.5 14h2"/>',
+  habit: '<path d="M12 21c-3.9 0-6.5-2.6-6.5-6.2 0-3.3 2.4-5.2 3.6-8.3.4 1.8 1.5 2.9 2.6 3.4.2-2.8 1.6-5.3 3.8-6.9-.2 2.9 2.9 5.5 2.9 10 0 4.6-2.5 8-6.4 8z"/>',
+  sparkle: '<path d="M12 3.5l1.8 5.2 5.2 1.8-5.2 1.8L12 17.5l-1.8-5.2-5.2-1.8 5.2-1.8z"/><path d="M18.5 16v4M16.5 18h4"/>',
+  inbox: '<path d="M4 13.5l2.2-7.2A2 2 0 018.1 5h7.8a2 2 0 011.9 1.3l2.2 7.2v4.5a2 2 0 01-2 2H6a2 2 0 01-2-2z"/><path d="M4 13.5h4.5l1.2 2.2h4.6l1.2-2.2H20"/>',
+  knot: '<path d="M8.5 6.5a4.5 4.5 0 100 9c2.5 0 3.5-2 3.5-4.5S13 6.5 15.5 6.5a4.5 4.5 0 110 9"/><path d="M8.5 15.5c2.5 0 3.5 2 3.5 2"/>',
+  logout: '<path d="M14 4.5h3.5a2 2 0 012 2v11a2 2 0 01-2 2H14"/><path d="M10 8l-4 4 4 4M6 12h9"/>',
+  shield: '<path d="M12 3l7 3v5.5c0 4.4-3 7.9-7 9.5-4-1.6-7-5.1-7-9.5V6z"/>',
+  calendar: '<rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
+} as const;
+
+export type IconName = keyof typeof icons;

@@ -1,0 +1,22 @@
+name = "cowork-reminders"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+workers_dev = false
+
+[triggers]
+crons = ["*/5 * * * *"]
+
+[vars]
+APP_ORIGIN = "https://cowork.arnavg.me"
+
+# Same database as the Pages project (see ../../wrangler.toml).
+[[d1_databases]]
+binding = "DB"
+database_name = "cowork"
+database_id = "73211149-76f7-499c-9648-7df2a985fd2b"
+
+[observability]
+enabled = true
+
+# Secrets (set with `wrangler secret put <NAME> --config workers/reminders/wrangler.toml`):
+#   VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY

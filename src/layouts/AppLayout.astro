@@ -1,0 +1,57 @@
+---
+import Base from './Base.astro';
+import { icons } from '../components/icons';
+import { copy } from '../content/copy';
+
+type Tab = 'today' | 'week' | 'projects' | 'habits' | 'partner';
+interface Props {
+  title: string;
+  active?: Tab | null;
+}
+const { title, active = null } = Astro.props;
+
+const tabs: { id: Tab; href: string; icon: keyof typeof icons; label: string }[] = [
+  { id: 'today', href: '/today', icon: 'today', label: copy.nav.today },
+  { id: 'week', href: '/week', icon: 'week', label: copy.nav.week },
+  { id: 'projects', href: '/projects', icon: 'folder', label: copy.nav.projects },
+  { id: 'habits', href: '/habits', icon: 'habit', label: copy.nav.habits },
+  { id: 'partner', href: '/partner', icon: 'users', label: copy.nav.partner },
+];
+const svg = (name: keyof typeof icons) =>
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name]}</svg>`;
+---
+
+<Base title={title}>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="app-header">
+    <a class="wordmark" href="/today" aria-label={`${copy.appName}, go to Today`}>
+      <Fragment set:html={svg('knot').replace('<svg', '<svg class="knot"')} />
+      {copy.appName}
+    </a>
+    <div class="header-actions">
+      <a class="icon-btn" href="/suggestions" id="nav-suggestions" aria-label="Suggestions">
+        <Fragment set:html={svg('inbox')} />
+        <span class="badge" id="suggestions-badge" hidden></span>
+      </a>
+      <a class="icon-btn" href="/settings" aria-label="Settings and profile" id="nav-settings">
+        <span class="avatar" id="me-avatar" aria-hidden="true"></span>
+      </a>
+    </div>
+  </header>
+  <main id="main" class="shell" tabindex="-1">
+    <slot />
+  </main>
+  <nav class="tabbar" aria-label="Main">
+    {
+      tabs.map((t) => (
+        <a href={t.href} aria-current={active === t.id ? 'page' : undefined}>
+          <Fragment set:html={svg(t.icon)} />
+          <span>{t.label}</span>
+        </a>
+      ))
+    }
+  </nav>
+  <script>
+    import '../lib/shell';
+  </script>
+</Base>

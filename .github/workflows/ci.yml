@@ -1,0 +1,63 @@
+name: CI / Deploy
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Never cancel a production deploy halfway (e.g. between migrations and the Pages deploy).
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Typecheck, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push'
+        with:
+          name: dist
+          path: dist
+          retention-days: 3
+
+  deploy:
+    name: Migrate and deploy
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      # Steps run in order and stop at the first failure: if migrations fail, nothing is deployed.
+      - name: Apply D1 migrations (production)
+        run: npx wrangler d1 migrations apply cowork --remote
+      - name: Deploy Pages (site + API)
+        run: npx wrangler pages deploy dist --project-name cowork --branch main --commit-hash "$GITHUB_SHA"
+      - name: Deploy reminders Worker (cron)
+        run: npx wrangler deploy --config workers/reminders/wrangler.toml

@@ -1,0 +1,139 @@
+/*
+ * Design tokens. Every colour, radius, space and type size in the app comes from here.
+ * Palette: warm paper + cocoa ink, terracotta "clay" accent, sage for done, honey for streaks,
+ * plum for everything partner-related.
+ */
+:root {
+  color-scheme: light;
+
+  --font-display: 'Fraunces', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+  --font-text: 'Figtree', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* Surfaces & ink */
+  --paper: #f8f0e5;
+  --paper-deep: #f0e4d3;
+  --surface: #fffaf3;
+  --surface-raised: #ffffff;
+  --ink: #2a1d17;
+  --ink-soft: #5e4c42;
+  --ink-faint: #75635a;
+  --line: #e6d7c4;
+  --line-strong: #cdb9a2;
+
+  /* Accents (each has an ink colour that passes AA on it) */
+  --clay: #b8492f;
+  --clay-strong: #9a3a23;
+  --clay-tint: #f6dccf;
+  --on-clay: #ffffff;
+  --sage: #3f6a46;
+  --sage-tint: #dceadb;
+  --honey: #8a5a00;
+  --honey-tint: #f8e6bf;
+  --plum: #7b4470;
+  --plum-tint: #efdcea;
+  --sky: #33617f;
+  --sky-tint: #d9e8f1;
+  --missed: #96402d;
+  --missed-tint: #f3ddd5;
+
+  --focus: #1f6feb;
+
+  /* Category colours */
+  --cat-personal: var(--plum);
+  --cat-work: var(--sky);
+  --cat-habit: var(--sage);
+
+  /* Shape */
+  --radius-s: 10px;
+  --radius-m: 16px;
+  --radius-l: 24px;
+  --radius-pill: 999px;
+  --shadow-1: 0 1px 0 rgba(60, 35, 20, 0.04), 0 2px 8px rgba(60, 35, 20, 0.06);
+  --shadow-2: 0 2px 0 rgba(60, 35, 20, 0.04), 0 12px 32px rgba(60, 35, 20, 0.14);
+
+  /* Space (4px grid) */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-10: 40px;
+
+  /* Type scale */
+  --t-xs: 0.75rem;
+  --t-s: 0.875rem;
+  --t-m: 1rem;
+  --t-l: 1.125rem;
+  --t-xl: 1.5rem;
+  --t-2xl: 2rem;
+  --t-3xl: 2.6rem;
+
+  --tap: 44px;
+  --nav-h: 68px;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur: 220ms;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --paper: #1b1411;
+    --paper-deep: #140f0c;
+    --surface: #251c18;
+    --surface-raised: #2e231e;
+    --ink: #f6ebe0;
+    --ink-soft: #cdbcae;
+    --ink-faint: #a08f82;
+    --line: #3b2e27;
+    --line-strong: #56453b;
+    --clay: #f08c6c;
+    --clay-strong: #f6a488;
+    --clay-tint: #4a2a20;
+    --on-clay: #2a140c;
+    --sage: #9bc79f;
+    --sage-tint: #24372a;
+    --honey: #f1c164;
+    --honey-tint: #43341a;
+    --plum: #e0a8d3;
+    --plum-tint: #42283e;
+    --sky: #9cc7e4;
+    --sky-tint: #1f3442;
+    --missed: #f0a08a;
+    --missed-tint: #45271f;
+    --focus: #79b0ff;
+    --shadow-1: 0 1px 0 rgba(0, 0, 0, 0.3);
+    --shadow-2: 0 16px 40px rgba(0, 0, 0, 0.5);
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --paper: #1b1411;
+  --paper-deep: #140f0c;
+  --surface: #251c18;
+  --surface-raised: #2e231e;
+  --ink: #f6ebe0;
+  --ink-soft: #cdbcae;
+  --ink-faint: #a08f82;
+  --line: #3b2e27;
+  --line-strong: #56453b;
+  --clay: #f08c6c;
+  --clay-strong: #f6a488;
+  --clay-tint: #4a2a20;
+  --on-clay: #2a140c;
+  --sage: #9bc79f;
+  --sage-tint: #24372a;
+  --honey: #f1c164;
+  --honey-tint: #43341a;
+  --plum: #e0a8d3;
+  --plum-tint: #42283e;
+  --sky: #9cc7e4;
+  --sky-tint: #1f3442;
+  --missed: #f0a08a;
+  --missed-tint: #45271f;
+  --focus: #79b0ff;
+  --shadow-1: 0 1px 0 rgba(0, 0, 0, 0.3);
+  --shadow-2: 0 16px 40px rgba(0, 0, 0, 0.5);
+}

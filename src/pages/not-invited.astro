@@ -1,0 +1,23 @@
+---
+import Base from '../layouts/Base.astro';
+import { icons } from '../components/icons';
+import { copy } from '../content/copy';
+---
+
+<Base title="Not invited">
+  <main class="hero" id="main">
+    <svg class="knot hero-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={icons.lock} />
+    <h1>{copy.notInvited.title}</h1>
+    <p class="lede" id="reason">{copy.notInvited.body}</p>
+    <p>
+      <a class="btn ghost" href="/">{copy.notInvited.cta}</a>
+    </p>
+  </main>
+  <script>
+    import { copy } from '../content/copy';
+    if (new URLSearchParams(location.search).get('reason') === 'unverified') {
+      const el = document.getElementById('reason');
+      if (el) el.textContent = copy.notInvited.unverified;
+    }
+  </script>
+</Base>

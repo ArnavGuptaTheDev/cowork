@@ -1,0 +1,44 @@
+{
+  "name": "cowork",
+  "version": "0.1.0",
+  "description": "A project and todo app for couples.",
+  "scripts": {
+    "dev": "astro dev",
+    "dev:api": "wrangler pages dev dist --port 8788",
+    "preview": "npm run build && wrangler pages dev dist --port 8788",
+    "build": "astro build",
+    "typecheck": "astro check && tsc -p tsconfig.server.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:migrate:local": "wrangler d1 migrations apply cowork --local",
+    "db:migrate:remote": "wrangler d1 migrations apply cowork --remote",
+    "db:seed": "node scripts/seed.mjs",
+    "vapid": "node scripts/generate-vapid.mjs",
+    "icons": "node scripts/generate-icons.mjs",
+    "deploy:pages": "wrangler pages deploy dist --project-name cowork --branch main",
+    "deploy:worker": "wrangler deploy --config workers/reminders/wrangler.toml"
+  },
+  "license": "UNLICENSED",
+  "type": "module",
+  "dependencies": {
+    "@astrojs/preact": "^6.0.6",
+    "@fontsource-variable/figtree": "^5.3.0",
+    "@fontsource-variable/fraunces": "^5.3.0",
+    "astro": "^7.3.6",
+    "hono": "^4.13.13",
+    "preact": "^10.29.8",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.10",
+    "@cloudflare/workers-types": "^5.20261007.1",
+    "@resvg/resvg-js": "^2.6.2",
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.3",
+    "wrangler": "^4.148.0"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=22.13"
+  }
+}

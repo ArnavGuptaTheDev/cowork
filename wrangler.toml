@@ -1,0 +1,23 @@
+# Cloudflare Pages project: static Astro build in ./dist + Pages Functions in ./functions.
+name = "cowork"
+pages_build_output_dir = "./dist"
+compatibility_date = "2026-09-01"
+
+[vars]
+APP_ORIGIN = "https://cowork.arnavg.me"
+
+# database_id comes from `wrangler d1 create cowork` (it is an identifier, not a secret). Keep it in sync with workers/reminders/wrangler.toml.
+[[d1_databases]]
+binding = "DB"
+database_name = "cowork"
+database_id = "73211149-76f7-499c-9648-7df2a985fd2b"
+migrations_dir = "migrations"
+
+# Private bucket: never enable public access or an r2.dev URL. Photos are served by /api/photos/:id.
+[[r2_buckets]]
+binding = "PHOTOS"
+bucket_name = "cowork-photos"
+
+# Secrets (never in this file). Production: `wrangler pages secret put <NAME> --project-name cowork`.
+# Local: copy .dev.vars.example to .dev.vars.
+#   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, SESSION_SECRET, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, SUPER_ADMIN_EMAIL

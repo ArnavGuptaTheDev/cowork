@@ -1,0 +1,8 @@
+---
+import AppLayout from '../layouts/AppLayout.astro';
+import TodayIsland from '../components/TodayIsland';
+---
+
+<AppLayout title="Today" active="today">
+  <TodayIsland client:load />
+</AppLayout>
