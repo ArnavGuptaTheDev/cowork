@@ -51,43 +51,52 @@ export default function TodayIsland() {
         <ProgressRing done={mine.summary.done} total={mine.summary.total} label={`Today: ${mine.summary.done} of ${mine.summary.total} done`} />
       </header>
 
-      {me.partner && partner && (
-        <a class="glance" href="/partner">
-          <Icon name="users" />
-          <span>{me.partner.name.split(' ')[0]}</span>
-          <ProgressBar done={partner.summary.done} total={partner.summary.total} />
-          <span>
-            {partner.summary.done}/{partner.summary.total}
-          </span>
-        </a>
-      )}
-
-      {mine.items.length === 0 ? (
-        <Empty title={copy.today.empty.title} body={copy.today.empty.body} icon="sun">
-          <button type="button" class="btn" onClick={() => setCreating(true)}>
+      <div class="split">
+        <aside class="split-side">
+          <button type="button" class="btn block desk-only" onClick={() => setCreating(true)}>
             <Icon name="plus" /> {copy.today.add}
           </button>
-        </Empty>
-      ) : (
-        <>
-          {allDone && <p class="celebrate">{copy.today.allDone}</p>}
-          <ul class="todo-list" aria-label="To do">
-            {open.map((item) => (
-              <TodoItem key={item.instanceId} item={item} today={mine.date} onToggle={(i) => toggleItem(i, mine.date, apply)} onOpen={setOpenItem} />
-            ))}
-          </ul>
-          {done.length > 0 && (
+          {me.partner && partner && (
+            <a class="glance" href="/partner">
+              <Icon name="users" />
+              <span>{me.partner.name.split(' ')[0]}</span>
+              <ProgressBar done={partner.summary.done} total={partner.summary.total} />
+              <span>
+                {partner.summary.done}/{partner.summary.total}
+              </span>
+            </a>
+          )}
+        </aside>
+
+        <div class="split-main">
+          {mine.items.length === 0 ? (
+            <Empty title={copy.today.empty.title} body={copy.today.empty.body} icon="sun">
+              <button type="button" class="btn" onClick={() => setCreating(true)}>
+                <Icon name="plus" /> {copy.today.add}
+              </button>
+            </Empty>
+          ) : (
             <>
-              <p class="done-divider">Done · {done.length}</p>
-              <ul class="todo-list" aria-label="Done">
-                {done.map((item) => (
+              {allDone && <p class="celebrate">{copy.today.allDone}</p>}
+              <ul class="todo-list" aria-label="To do">
+                {open.map((item) => (
                   <TodoItem key={item.instanceId} item={item} today={mine.date} onToggle={(i) => toggleItem(i, mine.date, apply)} onOpen={setOpenItem} />
                 ))}
               </ul>
+              {done.length > 0 && (
+                <>
+                  <p class="done-divider">Done · {done.length}</p>
+                  <ul class="todo-list" aria-label="Done">
+                    {done.map((item) => (
+                      <TodoItem key={item.instanceId} item={item} today={mine.date} onToggle={(i) => toggleItem(i, mine.date, apply)} onOpen={setOpenItem} />
+                    ))}
+                  </ul>
+                </>
+              )}
             </>
           )}
-        </>
-      )}
+        </div>
+      </div>
 
       <button type="button" class="fab" onClick={() => setCreating(true)} aria-label={copy.today.add}>
         <Icon name="plus" />

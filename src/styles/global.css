@@ -1151,7 +1151,7 @@ dialog.sheet::backdrop {
   color: var(--ink);
   margin-bottom: var(--s-2);
 }
-.empty svg {
+.empty > svg {
   width: 72px;
   height: 72px;
   color: var(--clay);
@@ -1546,4 +1546,229 @@ dialog.sheet::backdrop {
 }
 .page-title {
   font-size: clamp(2.1rem, 10vw, 2.6rem);
+}
+
+/* ---------- Split layout (Today) ---------- */
+.split-side {
+  display: grid;
+  gap: var(--s-3);
+}
+.split-side:empty {
+  display: none;
+}
+.desk-only {
+  display: none !important;
+}
+
+/* ---------- Desktop ---------- */
+@media (min-width: 960px) {
+  :root {
+    --sidebar-w: 232px;
+  }
+  body {
+    padding-left: var(--sidebar-w);
+  }
+
+  /* Bottom tab bar becomes a left sidebar */
+  .tabbar {
+    left: 0;
+    top: 0;
+    bottom: 0;
+    transform: none;
+    width: var(--sidebar-w);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 84px var(--s-4) var(--s-4);
+    border-radius: 0;
+    border: 0;
+    border-right: 1px solid var(--line);
+    box-shadow: none;
+    background: color-mix(in oklab, var(--surface) 70%, var(--paper));
+  }
+  .tabbar a {
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: var(--s-3);
+    min-height: 44px;
+    padding: 0 var(--s-4);
+    font-size: var(--t-m);
+    border-radius: var(--radius-s);
+  }
+  .tabbar a:hover {
+    background: var(--paper-deep);
+  }
+  /* The wordmark sits at the top of the sidebar */
+  .app-header {
+    max-width: 1120px;
+    padding: var(--s-4) var(--s-8);
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    position: static;
+  }
+  .app-header {
+    justify-content: flex-end;
+  }
+  .app-header .wordmark {
+    position: fixed;
+    top: 22px;
+    left: 28px;
+    z-index: 31;
+  }
+
+  .shell {
+    max-width: 1120px;
+    padding: 0 var(--s-8) var(--s-10);
+  }
+  .page-head {
+    padding-top: 0;
+    padding-bottom: var(--s-6);
+  }
+  .page-title {
+    font-size: 3rem;
+  }
+
+  .fab {
+    display: none;
+  }
+  .desk-only {
+    display: inline-flex !important;
+  }
+
+  .split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    gap: var(--s-8);
+    align-items: start;
+  }
+  .split-side {
+    grid-column: 2;
+    grid-row: 1;
+    position: sticky;
+    top: var(--s-6);
+  }
+  .split-main {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .split .glance {
+    margin-bottom: 0;
+  }
+
+  /* Week: seven columns */
+  .week {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: var(--s-2);
+    align-items: start;
+  }
+  .day {
+    grid-template-columns: 1fr;
+    gap: var(--s-2);
+    min-width: 0;
+    padding: var(--s-2);
+    border-radius: var(--radius-m);
+    background: color-mix(in oklab, var(--surface) 55%, transparent);
+    border: 1px solid var(--line);
+    min-height: 220px;
+  }
+  .day.is-today {
+    border-color: var(--clay);
+  }
+  .day-label {
+    padding-top: 0;
+  }
+  .day-label .num {
+    font-size: var(--t-xl);
+  }
+  .day .todo {
+    grid-template-columns: 34px minmax(0, 1fr);
+    padding: 6px 6px 6px 2px;
+    min-height: 0;
+  }
+  .day .todo > :last-child {
+    display: none;
+  }
+  .day .check {
+    width: 34px;
+    height: 34px;
+  }
+  .day .check .ring {
+    width: 22px;
+    height: 22px;
+  }
+  .day .todo-title {
+    font-size: var(--t-s);
+  }
+  .day .todo-meta span:not(:first-child) {
+    display: none;
+  }
+  .day .todo-meta span:first-child {
+    display: block;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .day .todo-meta span:first-child .dot,
+  .day .todo-meta span:first-child svg {
+    display: inline-block;
+    vertical-align: -1px;
+    margin-right: 3px;
+  }
+  .day-empty {
+    border: 0;
+    padding: var(--s-2) 0;
+    text-align: center;
+  }
+
+  /* Month: calendar on the left, the selected day beside it */
+  .month-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    gap: var(--s-8);
+    align-items: start;
+  }
+  .month-layout > .section {
+    margin-top: 0;
+    position: sticky;
+    top: var(--s-6);
+  }
+  .month-cell {
+    aspect-ratio: auto;
+    min-height: 84px;
+    align-items: flex-start;
+    padding: 8px;
+  }
+  .month-cell .pips {
+    justify-content: flex-start;
+  }
+
+  .grid-cards {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .habit-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* Settings and similar card stacks: two columns */
+  .shell > .section.card,
+  .shell > form.section.card {
+    max-width: 720px;
+  }
+
+  dialog.sheet {
+    max-width: 600px;
+    max-height: 86dvh;
+  }
+
+  .toast-wrap {
+    bottom: var(--s-8);
+  }
+}
+
+@media (min-width: 1400px) {
+  .grid-cards {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }

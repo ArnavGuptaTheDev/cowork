@@ -6,7 +6,7 @@ import { Check, Icon } from './ui';
 /** Habit cards: streak, completion rate and a 14-day strip. Used for your own habits and (read-only) your partner's. */
 export function HabitList(props: { habits: Habit[]; readOnly?: boolean; onToggle?: (h: Habit) => void; onOpen?: (h: Habit) => void }) {
   return (
-    <ul class="todo-list">
+    <ul class="todo-list habit-grid">
       {props.habits.map((h) => {
         const done = h.todayStatus === 'done';
         return (

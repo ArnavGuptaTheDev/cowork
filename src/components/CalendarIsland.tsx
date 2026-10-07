@@ -181,7 +181,7 @@ function MonthGrid(props: {
   const sel = props.selected ?? (props.data.days.some((d) => d.date === props.today) ? props.today : props.data.from);
   const selDay = props.data.days.find((d) => d.date === sel);
   return (
-    <>
+    <div class="month-layout">
       <div class="month-grid" role="group" aria-label="Days of the month">
         {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
           <div key={i} class="dow" aria-hidden="true">
@@ -236,6 +236,6 @@ function MonthGrid(props: {
           )}
         </section>
       )}
-    </>
+    </div>
   );
 }
