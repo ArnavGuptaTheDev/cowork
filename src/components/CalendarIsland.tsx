@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'preact/hooks';
 import { addDays, endOfMonth, startOfMonth, startOfWeek, weekday } from '../../shared/time';
-import { get, getMe } from '../lib/api';
+import { errorMessage, get, getMe, send } from '../lib/api';
 import { dayOfMonth, monthYear, shortDate, shortDay } from '../lib/format';
 import type { DayItem, Me, RangeView } from '../lib/types';
 import { TodoItem } from './TodoItem';
 import { TodoSheet } from './TodoSheet';
-import { ErrorBox, Icon, Loading, Toasts } from './ui';
+import { ErrorBox, Icon, Loading, Toasts, toast } from './ui';
 import { toggleItem } from './useTodos';
 
 type Mode = 'week' | 'month';
@@ -76,6 +76,30 @@ export default function CalendarIsland({ mode }: { mode: Mode }) {
       },
     );
 
+  // Drag a one-off todo onto another day to move it (tap-to-move lives in the todo sheet).
+  const [dragOver, setDragOver] = useState<string | null>(null);
+  const dropProps = (date: string) => ({
+    onDragOver: (e: DragEvent) => {
+      if (!e.dataTransfer?.types.includes('text/cowork-instance')) return;
+      e.preventDefault();
+      setDragOver(date);
+    },
+    onDragLeave: () => setDragOver((d) => (d === date ? null : d)),
+    onDrop: async (e: DragEvent) => {
+      e.preventDefault();
+      setDragOver(null);
+      const id = e.dataTransfer?.getData('text/cowork-instance');
+      if (!id) return;
+      try {
+        await send('POST', `/api/instances/${id}/reschedule`, { date });
+        toast(`Moved to ${shortDay(date)} ${shortDate(date)}`);
+      } catch (err) {
+        toast(errorMessage(err), 'error');
+      }
+      await load();
+    },
+  });
+
   if (error) return <ErrorBox message={error} onRetry={load} />;
   if (!me || !anchor) return <Loading />;
 
@@ -134,7 +158,12 @@ export default function CalendarIsland({ mode }: { mode: Mode }) {
       ) : mode === 'week' ? (
         <div class="week">
           {data.days.map((day) => (
-            <section key={day.date} class={`day ${day.date === today ? 'is-today' : ''}`} aria-label={`${shortDay(day.date)} ${shortDate(day.date)}`}>
+            <section
+              key={day.date}
+              class={`day ${day.date === today ? 'is-today' : ''} ${dragOver === day.date ? 'drop-over' : ''}`}
+              aria-label={`${shortDay(day.date)} ${shortDate(day.date)}`}
+              {...dropProps(day.date)}
+            >
               <div class="day-label" aria-hidden="true">
                 <div class="dow">{shortDay(day.date)}</div>
                 <div class="num">{dayOfMonth(day.date)}</div>
@@ -146,8 +175,8 @@ export default function CalendarIsland({ mode }: { mode: Mode }) {
                       key={`${item.todoId}-${day.date}`}
                       item={item}
                       today={today}
-                      readOnly={readOnly}
-                      onToggle={(i) => toggleItem(i, today, apply)}
+                      draggable={canDrag(item)}
+                      onToggle={(i) => toggleItem(i, today, apply, load)}
                       onOpen={setOpenItem}
                     />
                   ))}
@@ -159,7 +188,17 @@ export default function CalendarIsland({ mode }: { mode: Mode }) {
           ))}
         </div>
       ) : (
-        <MonthGrid data={data} today={today} selected={selected} onSelect={setSelected} readOnly={readOnly} apply={apply} onOpen={setOpenItem} />
+        <MonthGrid
+          data={data}
+          today={today}
+          selected={selected}
+          onSelect={setSelected}
+          apply={apply}
+          reload={load}
+          onOpen={setOpenItem}
+          dropProps={dropProps}
+          dragOver={dragOver}
+        />
       )}
 
       <TodoSheet todoId={openItem?.todoId ?? null} instanceId={openItem?.instanceId} item={openItem} onClose={() => setOpenItem(null)} onChanged={load} />
@@ -168,14 +207,21 @@ export default function CalendarIsland({ mode }: { mode: Mode }) {
   );
 }
 
+/** One-off, open, editable todos can be dragged to another day. */
+function canDrag(i: DayItem): boolean {
+  return i.canEdit && !!i.instanceId && i.recurrence.type === 'none' && i.status !== 'done';
+}
+
 function MonthGrid(props: {
   data: RangeView;
   today: string;
   selected: string | null;
   onSelect: (d: string) => void;
-  readOnly: boolean;
   apply: (id: string, s: DayItem['status']) => void;
+  reload: () => void;
   onOpen: (i: DayItem) => void;
+  dropProps: (date: string) => Record<string, unknown>;
+  dragOver: string | null;
 }) {
   const lead = (weekday(props.data.from) + 6) % 7; // Monday-first
   const sel = props.selected ?? (props.data.days.some((d) => d.date === props.today) ? props.today : props.data.from);
@@ -197,8 +243,9 @@ function MonthGrid(props: {
             <button
               type="button"
               key={day.date}
-              class={`month-cell ${day.date === props.today ? 'is-today' : ''}`}
+              class={`month-cell ${day.date === props.today ? 'is-today' : ''} ${props.dragOver === day.date ? 'drop-over' : ''}`}
               aria-pressed={day.date === sel}
+              {...props.dropProps(day.date)}
               aria-label={`${shortDay(day.date)} ${shortDate(day.date)}: ${day.items.length} items, ${done} done`}
               onClick={() => props.onSelect(day.date)}
             >
@@ -225,8 +272,8 @@ function MonthGrid(props: {
                   key={`${item.todoId}-${selDay.date}`}
                   item={item}
                   today={props.today}
-                  readOnly={props.readOnly}
-                  onToggle={(i) => toggleItem(i, props.today, props.apply)}
+                  draggable={canDrag(item)}
+                  onToggle={(i) => toggleItem(i, props.today, props.apply, props.reload)}
                   onOpen={props.onOpen}
                 />
               ))}

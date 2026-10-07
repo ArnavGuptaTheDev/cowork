@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ruleFromColumns } from '../../shared/recurrence';
 import { habitStats } from '../../shared/streaks';
 import {
   completeSchema,
@@ -250,4 +251,31 @@ todoRoutes.post('/instances/:id/snooze', async (c) => {
   const { minutes } = await body(c, snoozeSchema);
   const at = await snoozeInstance(c.env, c.get('user'), idParam(c.req.param('id')), minutes, c.get('now'));
   return c.json({ reminderAt: at });
+});
+
+/** Todos the user can edit (their own and shared ones), for pickers like "save as template". */
+todoRoutes.get('/todos', async (c) => {
+  const user = c.get('user');
+  const partner = await getPartner(c.env.DB, user);
+  const { results } = await c.env.DB.prepare(
+    `SELECT t.id, t.title, t.category, t.recurrence, t.recurrence_weekdays, t.recurrence_month_day, t.is_private, t.user_id,
+            p.name AS project_name
+       FROM todos t LEFT JOIN projects p ON p.id = t.project_id
+      WHERE t.user_id = ? OR (t.user_id = ? AND (t.is_shared = 1 OR COALESCE(p.is_shared, 0) = 1))
+      ORDER BY t.recurrence != 'none' DESC, t.created_at DESC
+      LIMIT 300`,
+  )
+    .bind(user.id, partner?.id ?? '')
+    .all<{ id: string; title: string; category: string; recurrence: 'none' | 'daily' | 'weekly' | 'monthly'; recurrence_weekdays: string | null; recurrence_month_day: number | null; is_private: number; user_id: string; project_name: string | null }>();
+  return c.json({
+    todos: results.map((t) => ({
+      id: t.id,
+      title: t.title,
+      category: t.category,
+      recurrence: ruleFromColumns(t),
+      isPrivate: t.is_private === 1,
+      ownerId: t.user_id,
+      projectName: t.project_name,
+    })),
+  });
 });

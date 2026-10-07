@@ -6,13 +6,14 @@ import { runBatch, type InstanceRow, type ProjectRow, type TodoRow, type UserRow
 import type { Env } from '../env';
 import { badRequest, forbidden, notFound } from '../http';
 import { editableTodo, getPartner, todoAccess, type TodoAccess } from './access';
+import { loadPauses, pausedOn, type PauseRange } from './pause';
 import { deletePhotoObjects } from './photos';
 
 export type { TodoAccess };
 
 /** Create input; the sharing fields are optional for internal callers (suggestions, templates). */
-export type CreateTodoInput = Omit<TodoCreateInput, 'isShared' | 'assignee'> &
-  Partial<Pick<TodoCreateInput, 'isShared' | 'assignee'>>;
+export type CreateTodoInput = Omit<TodoCreateInput, 'isShared' | 'assignee' | 'isJoint'> &
+  Partial<Pick<TodoCreateInput, 'isShared' | 'assignee' | 'isJoint'>>;
 
 /** How far back the materialiser will fill gaps (e.g. after nobody opened the app for a while). */
 export const MAX_BACKFILL_DAYS = 366;
@@ -25,8 +26,18 @@ export function scheduleOf(t: Pick<TodoRow, 'start_date' | 'end_date' | 'recurre
   return { rule: ruleFromColumns(t), startDate: t.start_date, endDate: t.end_date };
 }
 
-/** Statements that generate missing recurring instances up to `today` (inclusive). */
-export function materializeStatements(db: D1Database, user: UserRow, todos: TodoRow[], today: string, now: number) {
+/**
+ * Statements that generate missing recurring instances up to `today` (inclusive).
+ * Occurrences inside one of the user's pauses are created paused (never missed).
+ */
+export function materializeStatements(
+  db: D1Database,
+  user: UserRow,
+  todos: TodoRow[],
+  today: string,
+  now: number,
+  pauses: Pick<PauseRange, 'start_date' | 'end_date'>[] = [],
+) {
   const stmts: D1PreparedStatement[] = [];
   for (const t of todos) {
     if (t.recurrence === 'none') continue;
@@ -34,19 +45,21 @@ export function materializeStatements(db: D1Database, user: UserRow, todos: Todo
     const lo = maxDate(from, addDays(today, -MAX_BACKFILL_DAYS));
     if (lo > today) continue;
     for (const d of occurrencesBetween(scheduleOf(t), lo, today)) {
+      const paused = pausedOn(pauses, d);
       stmts.push(
         db
           .prepare(
-            `INSERT OR IGNORE INTO todo_instances (id, todo_id, user_id, date, status, reminder_at, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT OR IGNORE INTO todo_instances (id, todo_id, user_id, date, status, reminder_at, paused, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .bind(
             crypto.randomUUID(),
             t.id,
             user.id,
             d,
-            d < today ? 'missed' : 'pending',
-            d === today ? reminderAt(d, t.reminder_time, user.timezone) : null,
+            d < today && !paused ? 'missed' : 'pending',
+            d === today && !paused ? reminderAt(d, t.reminder_time, user.timezone) : null,
+            paused ? 1 : 0,
             now,
           ),
       );
@@ -71,12 +84,13 @@ export async function materializeUser(db: D1Database, user: UserRow, now: number
     )
     .bind(user.id, today, today)
     .all<TodoRow>();
-  const stmts = materializeStatements(db, user, results, today, now);
+  const pauses = results.length ? await loadPauses(db, user.id) : [];
+  const stmts = materializeStatements(db, user, results, today, now, pauses);
   stmts.push(
     db
       .prepare(
         `UPDATE todo_instances SET status = 'missed'
-          WHERE user_id = ? AND status = 'pending' AND date < ?
+          WHERE user_id = ? AND status = 'pending' AND date < ? AND paused = 0
             AND todo_id IN (SELECT id FROM todos WHERE user_id = ? AND recurrence != 'none')`,
       )
       .bind(user.id, today, user.id),
@@ -121,6 +135,9 @@ export async function createTodo(
   const partner = shared ? await getPartner(env.DB, user) : null;
   if (input.isShared && !partner) throw badRequest('Pair with your partner to share todos');
   if (shared && input.isPrivate) throw badRequest('A todo can be private or shared, not both');
+  if (input.isJoint && (!shared || input.recurrence.type === 'none')) {
+    throw badRequest('Joint habits must be shared and repeating');
+  }
   const id = extra.id ?? crypto.randomUUID();
   const cols = ruleToColumns(input.recurrence);
   const today = localDate(now, user.timezone);
@@ -141,7 +158,8 @@ export async function createTodo(
     ...cols,
     is_private: input.isPrivate ? 1 : 0,
     is_shared: input.isShared ? 1 : 0,
-    assigned_to: shared ? assigneeId(user, partner?.id ?? null, input.assignee) : null,
+    assigned_to: shared && !input.isJoint ? assigneeId(user, partner?.id ?? null, input.assignee) : null,
+    is_joint: input.isJoint ? 1 : 0,
     suggested_by: extra.suggestedBy ?? null,
     materialized_through: materializedThrough,
     created_at: now,
@@ -150,13 +168,13 @@ export async function createTodo(
   const stmts: D1PreparedStatement[] = [
     env.DB.prepare(
       `INSERT INTO todos (id, user_id, project_id, title, notes, category, start_date, end_date, due_time, reminder_time,
-         recurrence, recurrence_weekdays, recurrence_month_day, is_private, is_shared, assigned_to, suggested_by,
+         recurrence, recurrence_weekdays, recurrence_month_day, is_private, is_shared, assigned_to, is_joint, suggested_by,
          materialized_through, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
       row.id, row.user_id, row.project_id, row.title, row.notes, row.category, row.start_date, row.end_date,
       row.due_time, row.reminder_time, row.recurrence, row.recurrence_weekdays, row.recurrence_month_day,
-      row.is_private, row.is_shared, row.assigned_to, row.suggested_by, row.materialized_through, row.created_at, row.updated_at,
+      row.is_private, row.is_shared, row.assigned_to, row.is_joint, row.suggested_by, row.materialized_through, row.created_at, row.updated_at,
     ),
   ];
   if (!recurring) {
@@ -167,7 +185,7 @@ export async function createTodo(
       ).bind(crypto.randomUUID(), id, user.id, input.startDate, reminderAt(input.startDate, input.reminderTime, user.timezone), now),
     );
   } else {
-    stmts.push(...materializeStatements(env.DB, user, [row], today, now));
+    stmts.push(...materializeStatements(env.DB, user, [row], today, now, await loadPauses(env.DB, user.id)));
   }
   await env.DB.batch(stmts);
   return id;
@@ -191,7 +209,8 @@ export async function updateTodo(env: Env, editor: UserRow, todoId: string, patc
     const ownerOnly =
       (patch.projectId !== undefined && patch.projectId !== old.project_id) ||
       (patch.isPrivate !== undefined && (patch.isPrivate ? 1 : 0) !== old.is_private) ||
-      (patch.isShared !== undefined && (patch.isShared ? 1 : 0) !== old.is_shared);
+      (patch.isShared !== undefined && (patch.isShared ? 1 : 0) !== old.is_shared) ||
+      (patch.isJoint !== undefined && (patch.isJoint ? 1 : 0) !== old.is_joint);
     if (ownerOnly) throw forbidden('Only the person who created this todo can move it, share it or make it private');
   }
   if (patch.recurrence) validateRule(patch.recurrence);
@@ -205,6 +224,8 @@ export async function updateTodo(env: Env, editor: UserRow, todoId: string, patc
   const shared = isShared === 1 || project?.is_shared === 1;
   if (isShared === 1 && !ownerPartner) throw badRequest('Pair with your partner to share todos');
   if (shared && isPrivate === 1) throw badRequest('A todo can be private or shared, not both');
+  const isJoint = patch.isJoint !== undefined ? (patch.isJoint ? 1 : 0) : old.is_joint;
+  if (isJoint === 1 && (!shared || !recurring)) throw badRequest('Joint habits must be shared and repeating');
 
   // The assignee is relative to whoever is editing.
   let assignedTo = old.assigned_to;
@@ -212,7 +233,7 @@ export async function updateTodo(env: Env, editor: UserRow, todoId: string, patc
     const other = editor.id === owner.id ? (ownerPartner?.id ?? null) : owner.id;
     assignedTo = assigneeId(editor, other, patch.assignee);
   }
-  if (!shared) assignedTo = null;
+  if (!shared || isJoint === 1) assignedTo = null;
 
   const next: TodoRow = {
     ...old,
@@ -228,6 +249,7 @@ export async function updateTodo(env: Env, editor: UserRow, todoId: string, patc
     is_private: isPrivate,
     is_shared: isShared,
     assigned_to: assignedTo,
+    is_joint: isJoint,
     updated_at: now,
   };
   if (next.end_date && next.end_date < next.start_date) throw badRequest('End date must be on or after the start date');
@@ -280,15 +302,15 @@ export async function updateTodo(env: Env, editor: UserRow, todoId: string, patc
     db.prepare(
       `UPDATE todos SET project_id = ?, title = ?, notes = ?, category = ?, start_date = ?, end_date = ?, due_time = ?,
          reminder_time = ?, recurrence = ?, recurrence_weekdays = ?, recurrence_month_day = ?, is_private = ?,
-         is_shared = ?, assigned_to = ?, materialized_through = ?, updated_at = ?
+         is_shared = ?, assigned_to = ?, is_joint = ?, materialized_through = ?, updated_at = ?
        WHERE id = ?`,
     ).bind(
       next.project_id, next.title, next.notes, next.category, next.start_date, next.end_date, next.due_time,
       next.reminder_time, next.recurrence, next.recurrence_weekdays, next.recurrence_month_day, next.is_private,
-      next.is_shared, next.assigned_to, next.materialized_through, now, todoId,
+      next.is_shared, next.assigned_to, next.is_joint, next.materialized_through, now, todoId,
     ),
   );
-  if (scheduleChanged && recurring) stmts.push(...materializeStatements(db, owner, [next], today, now));
+  if (scheduleChanged && recurring) stmts.push(...materializeStatements(db, owner, [next], today, now, await loadPauses(db, owner.id)));
   await runBatch(db, stmts);
   return next;
 }
@@ -336,6 +358,18 @@ export async function completeInstance(env: Env, actor: UserRow, instanceId: str
   const { inst, access } = await actionableInstance(env.DB, actor, instanceId);
   const today = localDate(now, access.owner.timezone);
   if (inst.recurrence !== 'none' && inst.date > today) throw badRequest("You can't complete a future occurrence yet");
+  if (access.todo.is_joint === 1 && access.shared) {
+    // Joint habit: record this person's half; it's done only once both partners have.
+    await env.DB.prepare('INSERT OR IGNORE INTO instance_completions (instance_id, user_id, completed_at) VALUES (?, ?, ?)')
+      .bind(instanceId, actor.id, now)
+      .run();
+    const both = await env.DB.prepare('SELECT COUNT(*) AS n FROM instance_completions WHERE instance_id = ?')
+      .bind(instanceId)
+      .first<{ n: number }>();
+    if ((both?.n ?? 0) < 2) {
+      return { inst: { ...inst, completed_by: null }, access, joint: { waiting: true } };
+    }
+  }
   await env.DB.prepare(
     `UPDATE todo_instances SET status = 'done', completed_at = ?, completed_on = ?, completed_by = ?, note = ? WHERE id = ?`,
   )
@@ -350,12 +384,13 @@ export async function completeInstance(env: Env, actor: UserRow, instanceId: str
 export async function uncompleteInstance(env: Env, actor: UserRow, instanceId: string, now: number) {
   const { inst, access } = await actionableInstance(env.DB, actor, instanceId);
   const today = localDate(now, access.owner.timezone);
-  const status = inst.recurrence !== 'none' && inst.date < today ? 'missed' : 'pending';
-  await env.DB.prepare(
-    `UPDATE todo_instances SET status = ?, completed_at = NULL, completed_on = NULL, completed_by = NULL WHERE id = ?`,
-  )
-    .bind(status, instanceId)
-    .run();
+  const status = inst.recurrence !== 'none' && inst.date < today && inst.paused !== 1 ? 'missed' : 'pending';
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM instance_completions WHERE instance_id = ? AND user_id = ?').bind(instanceId, actor.id),
+    env.DB.prepare(
+      `UPDATE todo_instances SET status = ?, completed_at = NULL, completed_on = NULL, completed_by = NULL WHERE id = ?`,
+    ).bind(status, instanceId),
+  ]);
   return { inst: { ...inst, status }, access };
 }
 
@@ -395,7 +430,7 @@ export async function recomputeReminders(db: D1Database, user: UserRow, now: num
   const { results } = await db
     .prepare(
       `SELECT i.id, i.date, t.reminder_time FROM todo_instances i JOIN todos t ON t.id = i.todo_id
-        WHERE i.user_id = ? AND i.status = 'pending' AND i.date >= ? AND t.reminder_time IS NOT NULL`,
+        WHERE i.user_id = ? AND i.status = 'pending' AND i.paused = 0 AND i.date >= ? AND t.reminder_time IS NOT NULL`,
     )
     .bind(user.id, today)
     .all<{ id: string; date: string; reminder_time: string }>();

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { copy } from '../content/copy';
 import { get, getMe } from '../lib/api';
-import { dayMonth, dayName, greeting } from '../lib/format';
+import { dayMonth, dayName, greeting, relativeDay } from '../lib/format';
 import type { DayItem, Me, TodayView } from '../lib/types';
 import { QuickAdd } from './QuickAdd';
 import { TodoForm } from './TodoForm';
@@ -58,6 +58,13 @@ export default function TodayIsland() {
         <ProgressRing done={mine.summary.done} total={mine.summary.total} label={`Today: ${mine.summary.done} of ${mine.summary.total} done`} />
       </header>
 
+      {me.user.pausedUntil && (
+        <p class="partner-banner mb-4">
+          <Icon name="pause" /> You're on a break until {relativeDay(me.user.pausedUntil, mine.date).toLowerCase()}. Reminders are off.{' '}
+          <a href="/settings">End it</a>
+        </p>
+      )}
+
       <div class="split">
         <aside class="split-side">
           <button type="button" class="btn block desk-only" onClick={() => setCreating(true)}>
@@ -66,7 +73,10 @@ export default function TodayIsland() {
           {me.partner && partner && (
             <a class="glance" href="/partner">
               <Icon name="users" />
-              <span>{me.partner.name.split(' ')[0]}</span>
+              <span>
+                {me.partner.name.split(' ')[0]}
+                {me.partner.pausedUntil ? ' · on a break' : ''}
+              </span>
               <ProgressBar done={partner.summary.done} total={partner.summary.total} />
               <span>
                 {partner.summary.done}/{partner.summary.total}
@@ -88,7 +98,7 @@ export default function TodayIsland() {
               {allDone && <p class="celebrate">{copy.today.allDone}</p>}
               <ul class="todo-list" aria-label="To do">
                 {open.map((item) => (
-                  <TodoItem key={item.instanceId} item={item} today={mine.date} onToggle={(i) => toggleItem(i, mine.date, apply)} onOpen={setOpenItem} />
+                  <TodoItem key={item.instanceId} item={item} today={mine.date} onToggle={(i) => toggleItem(i, mine.date, apply, state.reload)} onOpen={setOpenItem} />
                 ))}
               </ul>
               {done.length > 0 && (
@@ -96,7 +106,7 @@ export default function TodayIsland() {
                   <p class="done-divider">Done · {done.length}</p>
                   <ul class="todo-list" aria-label="Done">
                     {done.map((item) => (
-                      <TodoItem key={item.instanceId} item={item} today={mine.date} onToggle={(i) => toggleItem(i, mine.date, apply)} onOpen={setOpenItem} />
+                      <TodoItem key={item.instanceId} item={item} today={mine.date} onToggle={(i) => toggleItem(i, mine.date, apply, state.reload)} onOpen={setOpenItem} />
                     ))}
                   </ul>
                 </>

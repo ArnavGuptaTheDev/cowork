@@ -167,3 +167,29 @@ Then sign in at https://cowork.arnavg.me with the `SUPER_ADMIN_EMAIL` account, o
 - **Notification actions.** Reminder pushes carry Done / Snooze 1h, plus Tomorrow on one-off todos.
   - **How they run:** the service worker performs them with the session cookie and a CSRF token fetched from `/api/me`, so the normal CSRF rules apply.
   - **Fallback:** if an action fails (signed out, offline), or the platform has no action buttons, the tap opens `/today?todo=<id>` with that todo's sheet open.
+
+### Structure and insight (phase 2)
+
+- **Subtasks** belong to the todo; ticks belong to one occurrence (`subtask_checks` keyed by instance), so a repeating todo starts every day with a clean checklist. Up to 50 per todo. They're reordered with up/down buttons, which are keyboard friendly, instead of drag and drop. Completing a todo with open steps asks for confirmation and doesn't block.
+- **Templates** snapshot the chosen todos (fields, recurrence, checklist titles); later edits to the originals don't change them.
+  - **Private items:** items made from private todos are flagged private. The owner sees and applies them (they stay private); a partner viewing or applying a shared template never gets them.
+  - **Applying:** a template creates fresh todos starting on the chosen date, optionally inside a project.
+- **Joint habits** are shared, repeating todos with `is_joint`. Each partner's check-in goes in `instance_completions`; the occurrence becomes `done` only when both have checked in, so one partner alone doesn't count. Unpairing makes them ordinary todos again.
+- **Shared goals** ("gym 4 times each") are visible to both partners and editable only by whoever set them.
+  - **What counts:** each partner links one of their own (or a shared), non-private repeating todo. A link that later becomes private shows as "hidden" to the other person, count included.
+  - **Weekly progress:** completions credited to that person (`completed_by`, or their joint check-in) in their own Monday–Sunday week.
+- **Pause mode** covers a date range in your own calendar.
+  - **Repeating todos:** occurrences inside it are created or flagged `paused` instead of `missed`. Streaks skip paused days, so they freeze, and paused items don't count in Today's totals.
+  - **One-off todos** aren't paused; they just carry over as usual.
+  - **Notifications:** reminders and the wrap-up aren't sent while you're paused, and nudges to you are refused (409).
+  - **Ending early:** ending or cancelling a pause un-pauses from today on; earlier days stay paused in history.
+  - **Partner:** sees "on a break until …".
+- **Weekly review** counts with SQL `GROUP BY` (date × category × status) and turns the grouped rows into rates, per-weekday and per-category bars, and best/worst day (`summarizeWeek`, unit-tested).
+  - **Streaks:** the per-habit streak list reuses the existing streak code over the last 400 days of that habit's history.
+  - **Partner column:** never includes their private todos.
+  - **Charts:** inline SVG, each with a screen-reader table.
+- **Calendar.** Week and Month views double as the calendar.
+  - **Drag:** drag an open one-off todo onto another day, or a month cell, to move it. HTML5 drag and drop, so desktop only.
+  - **Tap:** on phones, "Move it" in the todo sheet does the same (Tomorrow / Next week / pick a date).
+  - **Repeating todos** follow their rule and can't be dragged.
+- **Photo timeline** shows completion photos only (proof or progress), newest first, 24 per page. It pages with a `(created_at, id)` cursor and applies the same rules as `/api/photos/:id`.

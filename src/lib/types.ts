@@ -12,6 +12,8 @@ export interface PublicUser {
   email: string;
   avatarUrl: string | null;
   timezone: string;
+  /** Last day of the user's current pause, if they're on a break today. */
+  pausedUntil?: string | null;
 }
 
 export interface Me {
@@ -56,8 +58,11 @@ export interface DayItem {
   photoCount: number;
   commentCount: number;
   reactions: { userId: string; emoji: string }[];
-  /** Checklist progress for this occurrence (phase 2). */
-  subtasks?: { done: number; total: number } | null;
+  /** Checklist progress for this occurrence. */
+  subtasks: { done: number; total: number } | null;
+  /** Joint habits: who has checked in today. */
+  isJoint: boolean;
+  jointDone: string[];
   streak: number | null;
 }
 
@@ -150,6 +155,7 @@ export interface Todo {
   isPrivate: boolean;
   isShared: boolean;
   assignedTo: string | null;
+  isJoint: boolean;
   ownerId: string;
   suggestedBy: string | null;
   createdAt: number;

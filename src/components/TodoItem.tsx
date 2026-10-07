@@ -4,6 +4,7 @@ import { assigneeLabel, nameFor } from '../lib/people';
 import type { DayItem } from '../lib/types';
 import { Check, Icon } from './ui';
 import { useMe } from './useMe';
+import { checkedByMe } from './useTodos';
 
 export function TodoItem(props: {
   item: DayItem;
@@ -18,6 +19,7 @@ export function TodoItem(props: {
   const { item } = props;
   const me = useMe();
   const done = item.status === 'done';
+  const checked = checkedByMe(item, me?.user.id);
   const missed = item.status === 'missed';
   const upcoming = item.status === 'upcoming';
   const paused = item.status === 'paused';
@@ -40,8 +42,8 @@ export function TodoItem(props: {
       }
     >
       <Check
-        checked={done}
-        label={`${done ? 'Mark not done' : 'Mark done'}: ${item.title}`}
+        checked={checked}
+        label={`${checked ? 'Mark not done' : 'Mark done'}: ${item.title}`}
         disabled={!canToggle}
         variant={missed ? 'missed' : upcoming || paused ? 'upcoming' : undefined}
         onToggle={canToggle ? () => props.onToggle?.(item) : undefined}
@@ -107,6 +109,11 @@ export function TodoItem(props: {
               <Icon name="chat" />
               {item.commentCount}
               <span class="sr-only"> comments</span>
+            </span>
+          )}
+          {item.isJoint && (
+            <span class="chip honey">
+              Together · {item.jointDone.length}/2
             </span>
           )}
           {item.subtasks && item.subtasks.total > 0 && (

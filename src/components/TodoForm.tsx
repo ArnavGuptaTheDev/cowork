@@ -34,6 +34,7 @@ interface FormState {
   isPrivate: boolean;
   isShared: boolean;
   assignee: 'me' | 'partner' | 'either';
+  isJoint: boolean;
 }
 
 export type TodoFormDefaults = Partial<FormState>;
@@ -54,6 +55,7 @@ function initialState(today: string, todo?: Todo, defaults?: Partial<FormState>,
     monthDay: r?.type === 'monthly' ? r.monthDay : Number(today.slice(8, 10)),
     isPrivate: todo?.isPrivate ?? false,
     isShared: todo?.isShared ?? false,
+    isJoint: todo?.isJoint ?? false,
     assignee: !todo?.assignedTo ? 'either' : todo.assignedTo === meId ? 'me' : 'partner',
     ...defaults,
   };
@@ -135,6 +137,7 @@ export function TodoForm(props: {
           isPrivate: sharedNow ? false : s.isPrivate,
           isShared: s.isShared,
           assignee: s.assignee,
+          isJoint: sharedNow && s.repeat !== 'none' && s.isJoint,
         });
         if (files.length) await uploadPhotos(files, { todoId: todo.id });
         toast('Added');
@@ -143,7 +146,14 @@ export function TodoForm(props: {
           'PATCH',
           `/api/todos/${props.todo.id}`,
           ownerEditing
-            ? { ...common, projectId: s.projectId || null, isPrivate: sharedNow ? false : s.isPrivate, isShared: s.isShared, assignee: s.assignee }
+            ? {
+                ...common,
+                projectId: s.projectId || null,
+                isPrivate: sharedNow ? false : s.isPrivate,
+                isShared: s.isShared,
+                assignee: s.assignee,
+                isJoint: sharedNow && s.repeat !== 'none' && s.isJoint,
+              }
             : { ...common, ...(sharedNow ? { assignee: s.assignee } : {}) },
         );
         toast('Saved');
@@ -337,7 +347,17 @@ export function TodoForm(props: {
           </label>
         )}
 
-        {props.mode !== 'suggest' && sharedNow && me?.partner && (
+        {props.mode !== 'suggest' && sharedNow && me?.partner && s.repeat !== 'none' && ownerEditing && (
+          <label class="switch mt-4">
+            <span>
+              <strong>Do it together</strong>
+              <span class="hint">A joint habit only counts for the day when you both tick it off.</span>
+            </span>
+            <input type="checkbox" role="switch" checked={s.isJoint} onChange={(e) => set('isJoint', e.currentTarget.checked)} />
+          </label>
+        )}
+
+        {props.mode !== 'suggest' && sharedNow && me?.partner && !(s.isJoint && s.repeat !== 'none') && (
           <fieldset class="segmented mt-4">
             <legend>Who's on it</legend>
             {(

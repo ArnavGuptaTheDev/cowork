@@ -74,7 +74,14 @@ export async function unpair(db: D1Database, user: UserRow, now: number): Promis
         WHERE (user_id = ?1 AND project_id IN (SELECT id FROM projects WHERE user_id = ?2))
            OR (user_id = ?2 AND project_id IN (SELECT id FROM projects WHERE user_id = ?1))`,
     ).bind(user.id, partnerId),
-    db.prepare('UPDATE todos SET is_shared = 0, assigned_to = NULL WHERE user_id IN (?, ?)').bind(user.id, partnerId),
+    db.prepare('UPDATE todos SET is_shared = 0, assigned_to = NULL, is_joint = 0 WHERE user_id IN (?, ?)').bind(user.id, partnerId),
+    db.prepare('UPDATE templates SET is_shared = 0 WHERE user_id IN (?, ?)').bind(user.id, partnerId),
+    // Goals belong to whoever set them; the other person's link (and progress) goes.
+    db.prepare(
+      `DELETE FROM goal_links
+        WHERE (user_id = ?1 AND goal_id IN (SELECT id FROM goals WHERE created_by = ?2))
+           OR (user_id = ?2 AND goal_id IN (SELECT id FROM goals WHERE created_by = ?1))`,
+    ).bind(user.id, partnerId),
     db.prepare('UPDATE projects SET is_shared = 0 WHERE user_id IN (?, ?)').bind(user.id, partnerId),
     db.prepare('UPDATE users SET partner_id = NULL, paired_at = NULL WHERE id = ? OR (id = ? AND partner_id = ?)').bind(user.id, partnerId, user.id),
     db

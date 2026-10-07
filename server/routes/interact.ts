@@ -6,7 +6,8 @@ import type { Context } from 'hono';
 import { publicUser } from '../db';
 import type { AppEnv } from '../env';
 import { HttpError, notFound, parse } from '../http';
-import { authzTodo, todoAccess } from '../services/access';
+import { authzTodo, getUser, todoAccess } from '../services/access';
+import { activePause } from '../services/pause';
 import { sendPushToUser } from '../services/notify';
 import { visibleInstance } from '../services/todos';
 import { body, defer, router } from './common';
@@ -67,6 +68,9 @@ interactRoutes.post('/instances/:id/nudge', async (c) => {
     { status: inst.status },
   );
   if (!target) throw notFound('Nothing to nudge');
+  const targetUser = target === user.id ? user : await getUser(c.env.DB, target);
+  const paused = targetUser ? await activePause(c.env.DB, targetUser, now) : null;
+  if (paused) throw new HttpError(409, 'paused', `${publicUser(targetUser!).name.split(' ')[0]} is taking a break until ${paused.end_date}`);
   const last = await c.env.DB.prepare('SELECT MAX(created_at) AS at FROM nudges WHERE todo_id = ?')
     .bind(inst.todo_id)
     .first<{ at: number | null }>();

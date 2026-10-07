@@ -3,6 +3,7 @@
 import type { UserRow } from './db';
 import { publicUser } from './db';
 import { sendPushToUser, type PushEnv } from './services/notify';
+import { pausedOn } from './services/pause';
 import { materializeUser } from './services/todos';
 import { todayView } from './services/views';
 import { localDate, localTime } from '../shared/time';
@@ -35,7 +36,18 @@ export function reminderRecipients(r: Pick<DueRow, 'user_id' | 'shared' | 'assig
   return mutual ? [r.user_id, r.partner_id!] : [r.user_id];
 }
 
-async function sendDueReminders(env: PushEnv, now: number, fetchFn: typeof fetch) {
+/** Users on a break today (their own local date): reminders, nudges and wrap-ups stay quiet. */
+async function pausedToday(env: PushEnv, users: UserRow[], now: number): Promise<Set<string>> {
+  const { results } = await env.DB.prepare('SELECT user_id, start_date, end_date FROM pauses').all<{ user_id: string; start_date: string; end_date: string }>();
+  const out = new Set<string>();
+  for (const u of users) {
+    const today = localDate(now, u.timezone);
+    if (pausedOn(results.filter((r) => r.user_id === u.id), today)) out.add(u.id);
+  }
+  return out;
+}
+
+async function sendDueReminders(env: PushEnv, now: number, fetchFn: typeof fetch, paused: Set<string>) {
   const { results: due } = await env.DB.prepare(
     `SELECT i.id, i.todo_id, i.user_id, i.reminder_at, t.title, t.due_time, t.recurrence, t.assigned_to, u.timezone,
             (t.is_shared = 1 OR COALESCE(p.is_shared, 0) = 1) AS shared,
@@ -45,7 +57,7 @@ async function sendDueReminders(env: PushEnv, now: number, fetchFn: typeof fetch
        LEFT JOIN projects p ON p.id = t.project_id
        JOIN users u ON u.id = i.user_id
        LEFT JOIN users pu ON pu.id = u.partner_id
-      WHERE i.status = 'pending' AND i.reminded_at IS NULL AND i.reminder_at IS NOT NULL
+      WHERE i.status = 'pending' AND i.paused = 0 AND i.reminded_at IS NULL AND i.reminder_at IS NOT NULL
         AND i.reminder_at <= ? AND i.reminder_at > ?
       ORDER BY i.reminder_at
       LIMIT 500`,
@@ -65,7 +77,7 @@ async function sendDueReminders(env: PushEnv, now: number, fetchFn: typeof fetch
       { action: 'snooze', title: 'Snooze 1h' },
       ...(r.recurrence === 'none' ? [{ action: 'tomorrow', title: 'Tomorrow' }] : []),
     ];
-    for (const to of reminderRecipients(r)) {
+    for (const to of reminderRecipients(r).filter((id) => !paused.has(id))) {
       sent += await sendPushToUser(
         env,
         to,
@@ -97,11 +109,11 @@ export function wrapupDue(u: Pick<UserRow, 'timezone' | 'wrapup_time' | 'wrapup_
   return diff >= 0 && diff < WRAPUP_WINDOW_MIN;
 }
 
-async function sendWrapups(env: PushEnv, users: UserRow[], now: number, fetchFn: typeof fetch) {
+async function sendWrapups(env: PushEnv, users: UserRow[], now: number, fetchFn: typeof fetch, paused: Set<string>) {
   let sent = 0;
   const byId = new Map(users.map((u) => [u.id, u]));
   for (const u of users) {
-    if (!wrapupDue(u, now)) continue;
+    if (paused.has(u.id) || !wrapupDue(u, now)) continue;
     const today = localDate(now, u.timezone);
     const claim = await env.DB.prepare(
       'UPDATE users SET wrapup_sent_on = ? WHERE id = ? AND (wrapup_sent_on IS NULL OR wrapup_sent_on != ?)',
@@ -138,7 +150,8 @@ export async function runReminders(env: PushEnv, now: number, fetchFn: typeof fe
       console.error('materialize failed', u.id, e);
     }
   }
-  const reminders = await sendDueReminders(env, now, fetchFn);
-  const wrapups = await sendWrapups(env, users, now, fetchFn);
+  const paused = await pausedToday(env, users, now);
+  const reminders = await sendDueReminders(env, now, fetchFn, paused);
+  const wrapups = await sendWrapups(env, users, now, fetchFn, paused);
   return { users: users.length, due: reminders.due, sent: reminders.sent, wrapups };
 }

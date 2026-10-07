@@ -2,7 +2,9 @@ import { useState } from 'preact/hooks';
 import { copy } from '../content/copy';
 import { errorMessage, get, send } from '../lib/api';
 import type { Habit } from '../lib/types';
+import { GoalsPanel } from './GoalsPanel';
 import { HabitList } from './HabitList';
+import { useMe } from './useMe';
 import { TodoForm } from './TodoForm';
 import { TodoSheet } from './TodoSheet';
 import { Empty, ErrorBox, Icon, Loading, Toasts, toast, useLoad } from './ui';
@@ -10,6 +12,7 @@ import { Empty, ErrorBox, Icon, Loading, Toasts, toast, useLoad } from './ui';
 export default function HabitsIsland() {
   const [creating, setCreating] = useState(false);
   const [open, setOpen] = useState<Habit | null>(null);
+  const me = useMe();
   const state = useLoad(() => get<{ today: string; habits: Habit[] }>('/api/habits'));
 
   const toggle = async (h: Habit) => {
@@ -47,6 +50,7 @@ export default function HabitsIsland() {
         </Empty>
       )}
       {active.length > 0 && <HabitList habits={active} onToggle={toggle} onOpen={setOpen} />}
+      {me && state.data && <GoalsPanel me={me} habits={state.data.habits} />}
       {ended.length > 0 && (
         <section class="section">
           <h2 class="section-title">Finished</h2>

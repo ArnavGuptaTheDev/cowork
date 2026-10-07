@@ -6,6 +6,7 @@ import { sha256Hex } from '../crypto';
 import { badRequest, conflict } from '../http';
 import { getPartner, getUser } from '../services/access';
 import { sendPushToUser } from '../services/notify';
+import { activePause } from '../services/pause';
 import { recomputeReminders } from '../services/todos';
 import { unpair } from '../services/users';
 import { body, defer, router } from './common';
@@ -20,9 +21,13 @@ meRoutes.get('/me', async (c) => {
   )
     .bind(user.id)
     .first<{ n: number }>();
+  const [myPause, theirPause] = await Promise.all([
+    activePause(c.env.DB, user, c.get('now')),
+    partner ? activePause(c.env.DB, partner, c.get('now')) : null,
+  ]);
   return c.json({
-    user: publicUser(user),
-    partner: partner ? publicUser(partner) : null,
+    user: { ...publicUser(user), pausedUntil: myPause?.end_date ?? null },
+    partner: partner ? { ...publicUser(partner), pausedUntil: theirPause?.end_date ?? null } : null,
     pairedAt: partner ? user.paired_at : null,
     csrfToken: c.get('session').csrfToken,
     isAdmin: isSuperAdmin(user.email, c.env.SUPER_ADMIN_EMAIL),

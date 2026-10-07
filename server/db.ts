@@ -50,6 +50,7 @@ export interface TodoRow {
   is_private: number;
   is_shared: number;
   assigned_to: string | null;
+  is_joint: number;
   suggested_by: string | null;
   materialized_through: string | null;
   created_at: number;
@@ -68,6 +69,7 @@ export interface InstanceRow {
   note: string;
   reminder_at: number | null;
   reminded_at: number | null;
+  paused: number;
   created_at: number;
 }
 
@@ -163,6 +165,7 @@ export interface TodoDto {
   isShared: boolean;
   /** Assignee of a shared todo (user id), null = either of us. */
   assignedTo: string | null;
+  isJoint: boolean;
   ownerId: string;
   suggestedBy: string | null;
   createdAt: number;
@@ -183,6 +186,7 @@ export function todoDto(t: TodoRow): TodoDto {
     isPrivate: t.is_private === 1,
     isShared: t.is_shared === 1,
     assignedTo: t.assigned_to,
+    isJoint: t.is_joint === 1,
     ownerId: t.user_id,
     suggestedBy: t.suggested_by,
     createdAt: t.created_at,

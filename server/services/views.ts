@@ -6,6 +6,7 @@ import { addDays, dateRange, localDate } from '../../shared/time';
 import { placeholders, projectDto, type Category, type ProjectDto, type ProjectRow, type TodoRow, type UserRow } from '../db';
 import { badRequest, notFound } from '../http';
 import { getPartner, privacyFilter, SHARED_SQL } from './access';
+import { STATUS_SQL } from './pause';
 import { materializeUser, scheduleOf } from './todos';
 
 export type ItemStatus = InstanceStatus | 'upcoming';
@@ -36,6 +37,11 @@ export interface DayItem {
   photoCount: number;
   commentCount: number;
   reactions: { userId: string; emoji: string }[];
+  /** Checklist progress for this occurrence. */
+  subtasks: { done: number; total: number } | null;
+  /** Joint habits: who has checked in for this occurrence. */
+  isJoint: boolean;
+  jointDone: string[];
   streak: number | null;
 }
 
@@ -50,13 +56,17 @@ type JoinedRow = TodoRow & {
   project_shared: number | null;
   photo_count: number;
   comment_count: number;
+  subtask_total: number;
+  subtask_done: number;
 };
 
 const ITEM_SELECT = `
-  SELECT t.*, i.id AS instance_id, i.date, i.status, i.completed_on, i.completed_by,
+  SELECT t.*, i.id AS instance_id, i.date, ${STATUS_SQL} AS status, i.completed_on, i.completed_by,
          p.name AS project_name, p.color AS project_color, p.is_shared AS project_shared,
          (SELECT COUNT(*) FROM photos ph WHERE ph.todo_id = t.id) AS photo_count,
-         (SELECT COUNT(*) FROM comments c WHERE c.todo_id = t.id) AS comment_count
+         (SELECT COUNT(*) FROM comments c WHERE c.todo_id = t.id) AS comment_count,
+         (SELECT COUNT(*) FROM subtasks s WHERE s.todo_id = t.id) AS subtask_total,
+         (SELECT COUNT(*) FROM subtask_checks sc WHERE sc.instance_id = i.id) AS subtask_done
     FROM todo_instances i
     JOIN todos t ON t.id = i.todo_id
     LEFT JOIN projects p ON p.id = t.project_id`;
@@ -93,6 +103,7 @@ function baseItem(r: TodoWithProject, viewer: UserRow) {
     // Lists only ever contain the viewer's items, or the partner's visible/shared ones.
     canEdit: r.user_id === viewer.id || shared,
     suggestedBy: r.suggested_by,
+    isJoint: r.is_joint === 1 && shared,
   };
 }
 
@@ -107,6 +118,8 @@ function toItem(r: JoinedRow, today: string, viewer: UserRow, streaks: Map<strin
     photoCount: r.photo_count,
     commentCount: r.comment_count,
     reactions: [],
+    subtasks: r.subtask_total > 0 ? { done: r.subtask_done, total: r.subtask_total } : null,
+    jointDone: [],
     streak: streaks.get(r.id) ?? null,
   };
 }
@@ -127,8 +140,8 @@ export async function loadHistories(db: D1Database, todoIds: string[], since: st
     const ids = todoIds.slice(i, i + 90);
     const { results } = await db
       .prepare(
-        `SELECT todo_id, date, status FROM todo_instances
-          WHERE todo_id IN (${placeholders(ids.length)}) AND date >= ? ORDER BY date`,
+        `SELECT i.todo_id, i.date, ${STATUS_SQL} AS status FROM todo_instances i
+          WHERE i.todo_id IN (${placeholders(ids.length)}) AND i.date >= ? ORDER BY i.date`,
       )
       .bind(...ids, since)
       .all<{ todo_id: string; date: string; status: InstanceStatus }>();
@@ -154,6 +167,15 @@ async function attachReactions(db: D1Database, items: DayItem[]): Promise<void> 
     for (const r of results) byInstance.set(r.instance_id, [...(byInstance.get(r.instance_id) ?? []), { userId: r.user_id, emoji: r.emoji }]);
   }
   for (const it of items) if (it.instanceId) it.reactions = byInstance.get(it.instanceId) ?? [];
+  // Joint habits: who has checked in.
+  const jointIds = items.filter((i) => i.isJoint && i.instanceId).map((i) => i.instanceId!);
+  if (jointIds.length) {
+    const { results } = await db
+      .prepare(`SELECT instance_id, user_id FROM instance_completions WHERE instance_id IN (${placeholders(jointIds.length)})`)
+      .bind(...jointIds)
+      .all<{ instance_id: string; user_id: string }>();
+    for (const it of items) if (it.isJoint) it.jointDone = results.filter((r) => r.instance_id === it.instanceId).map((r) => r.user_id);
+  }
 }
 
 async function streaksFor(db: D1Database, rows: { id: string; recurrence: string }[], today: string) {
@@ -206,18 +228,20 @@ export async function todayView(db: D1Database, owner: UserRow, viewer: UserRow,
     ...theirs.map((r) => toItem(r, partnerToday, viewer, streaks)),
   ]);
   await attachReactions(db, items);
+  // Paused occurrences don't count towards the day.
+  const counted = items.filter((i) => i.status !== 'paused');
   return {
     date: today,
     timezone: owner.timezone,
     items,
-    summary: { done: items.filter((i) => i.status === 'done').length, total: items.length },
+    summary: { done: counted.filter((i) => i.status === 'done').length, total: counted.length },
   };
 }
 
 /** True when the user has at least one item of their own today and every one is done (private ones included). */
 export async function allDoneToday(db: D1Database, owner: UserRow, now: number): Promise<boolean> {
   const v = await todayView(db, owner, owner, now);
-  const mine = v.items.filter((i) => i.ownerId === owner.id || i.assignedTo === owner.id);
+  const mine = v.items.filter((i) => (i.ownerId === owner.id || i.assignedTo === owner.id) && i.status !== 'paused');
   return mine.length > 0 && mine.every((i) => i.status === 'done');
 }
 
@@ -277,6 +301,8 @@ async function rangeItems(
           photoCount: 0,
           commentCount: 0,
           reactions: [],
+          subtasks: null,
+          jointDone: [],
           streak: null,
         });
       }
@@ -452,7 +478,7 @@ export async function projectView(db: D1Database, viewer: UserRow, projectId: st
     .prepare(
       `SELECT t.*,
           (SELECT i.id FROM todo_instances i WHERE i.todo_id = t.id ORDER BY i.date DESC LIMIT 1) AS instance_id,
-          (SELECT i.status FROM todo_instances i WHERE i.todo_id = t.id ORDER BY i.date DESC LIMIT 1) AS status,
+          (SELECT ${STATUS_SQL} FROM todo_instances i WHERE i.todo_id = t.id ORDER BY i.date DESC LIMIT 1) AS status,
           (SELECT COUNT(*) FROM photos ph WHERE ph.todo_id = t.id) AS photo_count
          FROM todos t
         WHERE t.project_id = ? AND ${VISIBLE_TODO}
@@ -498,8 +524,8 @@ export async function projectView(db: D1Database, viewer: UserRow, projectId: st
 export async function recentInstances(db: D1Database, todoId: string, limit = 60) {
   const { results } = await db
     .prepare(
-      `SELECT id, date, status, completed_at, completed_by, note FROM todo_instances
-        WHERE todo_id = ? ORDER BY date DESC LIMIT ?`,
+      `SELECT i.id, i.date, ${STATUS_SQL} AS status, i.completed_at, i.completed_by, i.note FROM todo_instances i
+        WHERE i.todo_id = ? ORDER BY i.date DESC LIMIT ?`,
     )
     .bind(todoId, limit)
     .all<{ id: string; date: string; status: InstanceStatus; completed_at: number | null; completed_by: string | null; note: string }>();

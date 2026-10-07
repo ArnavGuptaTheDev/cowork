@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
-import { errorMessage, getMe, send } from '../lib/api';
+import { errorMessage, get, getMe, send } from '../lib/api';
+import { relativeDay } from '../lib/format';
 import { currentSubscription, disablePush, enablePush, pushSupported } from '../lib/push';
 import type { Me } from '../lib/types';
 import { Avatar, ErrorBox, Icon, Loading, Toasts, toast, useLoad } from './ui';
@@ -66,7 +67,9 @@ export default function SettingsIsland() {
       </header>
       <Profile me={me} onSaved={state.reload} />
       <Appearance />
+      <MoreLinks />
       <Wrapup me={me} />
+      <Pause me={me} />
       <Notifications me={me} />
       <Pairing me={me} onChanged={state.reload} />
       <section class="section card">
@@ -163,6 +166,119 @@ function Profile({ me, onSaved }: { me: Me; onSaved: () => void }) {
         </button>
       </div>
     </form>
+  );
+}
+
+function MoreLinks() {
+  return (
+    <nav class="section card more-links" aria-label="More">
+      <a href="/review">
+        <Icon name="chart" /> Weekly review
+      </a>
+      <a href="/photos">
+        <Icon name="image" /> Photos
+      </a>
+      <a href="/templates">
+        <Icon name="grid" /> Templates
+      </a>
+      <a href="/suggestions">
+        <Icon name="inbox" /> Suggestions
+      </a>
+      <a href="/wrapup">
+        <Icon name="moon" /> Wrap-up
+      </a>
+    </nav>
+  );
+}
+
+interface PauseRow {
+  id: string;
+  startDate: string;
+  endDate: string;
+  note: string;
+  active: boolean;
+}
+
+function Pause({ me }: { me: Me }) {
+  const [list, setList] = useState<PauseRow[] | null>(null);
+  const [start, setStart] = useState(me.today);
+  const [end, setEnd] = useState(me.today);
+  const [note, setNote] = useState('');
+  const load = () => get<{ pauses: PauseRow[] }>('/api/pauses').then((r) => setList(r.pauses), () => setList([]));
+  useEffect(() => {
+    void load();
+  }, []);
+  const create = async (e: Event) => {
+    e.preventDefault();
+    try {
+      await send('POST', '/api/pauses', { startDate: start, endDate: end, note });
+      toast('Enjoy the break 🌴');
+      setNote('');
+      await load();
+      await getMe(true);
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+    }
+  };
+  const end_ = async (p: PauseRow) => {
+    try {
+      await send('DELETE', `/api/pauses/${p.id}`);
+      toast(p.active ? 'Welcome back' : 'Pause cancelled');
+      await load();
+      await getMe(true);
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+    }
+  };
+  return (
+    <section class="section card">
+      <h2 class="section-title">Take a break</h2>
+      <p class="faint">Travelling or unwell? While paused, reminders and nudges stay quiet, habits are paused instead of missed (streaks freeze), and your partner sees you're on a break.</p>
+      {list && list.length > 0 && (
+        <ul class="list-plain mt-2">
+          {list.map((p) => (
+            <li key={p.id} class="row">
+              <span class="grow">
+                {relativeDay(p.startDate, me.today)} → {relativeDay(p.endDate, me.today)}
+                {p.note ? <span class="faint"> · {p.note}</span> : null}
+                {p.active && <span class="chip sky"> on now</span>}
+              </span>
+              <button type="button" class="btn quiet small" onClick={() => end_(p)}>
+                {p.active ? 'End now' : 'Cancel'}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form class="mt-4" onSubmit={create}>
+        <div class="field-row">
+          <div class="field">
+            <label class="label" for="pause-start">
+              From
+            </label>
+            <input id="pause-start" class="input" type="date" value={start} onInput={(e) => setStart(e.currentTarget.value)} />
+          </div>
+          <div class="field">
+            <label class="label" for="pause-end">
+              Until
+            </label>
+            <input id="pause-end" class="input" type="date" min={start} value={end} onInput={(e) => setEnd(e.currentTarget.value)} />
+          </div>
+        </div>
+        <div class="field">
+          <label class="label" for="pause-note">
+            Note <span class="faint">(your partner sees it)</span>
+          </label>
+          <input id="pause-note" class="input" maxLength={200} placeholder="Goa trip" value={note} onInput={(e) => setNote(e.currentTarget.value)} />
+        </div>
+        <div class="row mt-4">
+          <span class="spacer" />
+          <button type="submit" class="btn">
+            <Icon name="pause" /> Pause
+          </button>
+        </div>
+      </form>
+    </section>
   );
 }
 

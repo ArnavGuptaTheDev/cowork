@@ -1928,3 +1928,224 @@ dialog.sheet::backdrop {
 .wrapup-item[data-category='habit'] {
   --cat: var(--cat-habit);
 }
+
+/* ---------- Phase 2: structure and insight ---------- */
+.tabbar .nav-extra {
+  display: none;
+}
+@media (min-width: 960px) {
+  .tabbar .nav-extra {
+    display: flex;
+  }
+  .tabbar .nav-sep {
+    display: block;
+    height: 1px;
+    min-height: 1px;
+    margin: var(--s-3) var(--s-2);
+    background: var(--line);
+  }
+}
+.rot90 {
+  transform: rotate(90deg);
+}
+.subtasks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.subtask {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: var(--tap);
+  padding: 0 var(--s-2);
+  border-radius: var(--radius-s);
+}
+.subtask:hover {
+  background: var(--paper-deep);
+}
+.subtask input[type='checkbox'] {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--sage);
+  flex: none;
+}
+.subtask.done label {
+  text-decoration: line-through;
+  color: var(--ink-faint);
+}
+.subtask-actions {
+  display: flex;
+  opacity: 0.55;
+}
+.subtask:hover .subtask-actions,
+.subtask:focus-within .subtask-actions {
+  opacity: 1;
+}
+.chart {
+  margin: var(--s-2) 0 0;
+}
+.chart svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.chart-bar {
+  fill: var(--clay);
+}
+.chart-total {
+  fill: var(--paper-deep);
+}
+.is-partner .chart-bar {
+  fill: var(--plum);
+}
+.chart-label {
+  font-size: 10px;
+  fill: var(--ink-faint);
+  font-family: var(--font-text);
+}
+.hbars {
+  list-style: none;
+  margin: var(--s-2) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s-2);
+}
+.hbars li {
+  display: grid;
+  grid-template-columns: 72px 1fr auto;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--t-s);
+}
+.hbar {
+  width: 100%;
+  height: 10px;
+  display: block;
+}
+.hbar-label {
+  text-transform: capitalize;
+}
+.review-grid {
+  display: grid;
+  gap: var(--s-4);
+}
+@media (min-width: 900px) {
+  .review-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.review-col .ring-progress {
+  --size: 64px;
+}
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--s-3);
+}
+.timeline-photo {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-m);
+  overflow: hidden;
+  background: var(--paper-deep);
+  cursor: zoom-in;
+}
+.timeline-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.timeline-meta {
+  display: grid;
+  margin-top: 6px;
+  font-size: var(--t-s);
+  line-height: 1.3;
+}
+.filter-select {
+  max-width: 320px;
+}
+.more-links {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--s-2);
+}
+.more-links a {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: var(--tap);
+  padding: 0 var(--s-3);
+  border-radius: var(--radius-s);
+  background: var(--paper-deep);
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 600;
+}
+.more-links svg {
+  width: 20px;
+  height: 20px;
+  color: var(--clay);
+}
+@media (min-width: 960px) {
+  .more-links {
+    display: none;
+  }
+}
+.goal h3 {
+  font-size: var(--t-l);
+  margin-bottom: var(--s-3);
+}
+.goal-row {
+  display: grid;
+  grid-template-columns: 72px 1fr 80px;
+  align-items: center;
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+  font-size: var(--t-s);
+}
+.goal-count {
+  text-align: right;
+}
+.pick-list {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 2px;
+  max-height: 46dvh;
+  overflow: auto;
+}
+.pick {
+  display: flex;
+  gap: var(--s-2);
+  align-items: flex-start;
+  padding: var(--s-2);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+.pick:hover {
+  background: var(--paper-deep);
+}
+.pick input {
+  margin-top: 4px;
+  accent-color: var(--clay);
+}
+.template-items li {
+  padding: 6px 0;
+}
+.drop-over {
+  outline: 3px dashed var(--clay);
+  outline-offset: 2px;
+}
+.todo[draggable='true'] {
+  cursor: grab;
+}

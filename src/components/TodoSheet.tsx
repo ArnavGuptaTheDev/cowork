@@ -9,6 +9,7 @@ import { assigneeLabel, nameFor } from '../lib/people';
 import type { DayItem, Photo, TodoDetail } from '../lib/types';
 import { CommentThread } from './CommentThread';
 import { PhotoButtons, PhotoGrid, uploadPhotos } from './PhotoPicker';
+import { SubtaskList } from './SubtaskList';
 import { TodoForm } from './TodoForm';
 import { ErrorBox, Icon, Loading, Sheet, toast } from './ui';
 import { useMe } from './useMe';
@@ -290,6 +291,8 @@ export function TodoSheet(props: {
                 </div>
               </section>
             )}
+
+            <SubtaskList todoId={d.todo.id} instanceId={instanceId} canEdit={canEdit} onChanged={props.onChanged} />
 
             {d.stats && (
               <div class="card mt-4">

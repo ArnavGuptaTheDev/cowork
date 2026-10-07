@@ -17,6 +17,13 @@ const tabs: { id: Tab; href: string; icon: keyof typeof icons; label: string }[]
   { id: 'habits', href: '/habits', icon: 'habit', label: copy.nav.habits },
   { id: 'partner', href: '/partner', icon: 'users', label: copy.nav.partner },
 ];
+// Desktop sidebar extras (on phones these live under Settings → More).
+const extras: { href: string; icon: keyof typeof icons; label: string }[] = [
+  { href: '/review', icon: 'chart', label: 'Review' },
+  { href: '/photos', icon: 'image', label: 'Photos' },
+  { href: '/templates', icon: 'grid', label: 'Templates' },
+];
+const path = Astro.url.pathname.replace(/\.html$/, '');
 const svg = (name: keyof typeof icons) =>
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name]}</svg>`;
 ---
@@ -45,6 +52,15 @@ const svg = (name: keyof typeof icons) =>
     {
       tabs.map((t) => (
         <a href={t.href} aria-current={active === t.id ? 'page' : undefined}>
+          <Fragment set:html={svg(t.icon)} />
+          <span>{t.label}</span>
+        </a>
+      ))
+    }
+    <span class="nav-extra nav-sep" aria-hidden="true"></span>
+    {
+      extras.map((t) => (
+        <a href={t.href} class="nav-extra" aria-current={path === t.href ? 'page' : undefined}>
           <Fragment set:html={svg(t.icon)} />
           <span>{t.label}</span>
         </a>

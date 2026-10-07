@@ -48,6 +48,7 @@ export const todoCreateSchema = z
     isPrivate: z.boolean().default(false),
     isShared: z.boolean().default(false),
     assignee: assigneeSchema.default('either'),
+    isJoint: z.boolean().default(false),
   })
   .strict()
   .refine(endAfterStart, { message: 'End date must be on or after the start date', path: ['endDate'] })
@@ -68,6 +69,7 @@ export const todoUpdateSchema = z
     isPrivate: z.boolean(),
     isShared: z.boolean(),
     assignee: assigneeSchema,
+    isJoint: z.boolean(),
   })
   .partial()
   .strict()
@@ -162,3 +164,56 @@ export const commentCreateSchema = z
 export const rescheduleSchema = z.object({ date: dateSchema }).strict();
 
 export const snoozeSchema = z.object({ minutes: z.number().int().min(5).max(24 * 60).default(60) }).strict();
+
+// --- Phase 2 ---
+
+export const subtaskTitleSchema = z.string().trim().min(1, 'Give it a title').max(200);
+export const subtaskCreateSchema = z.object({ title: subtaskTitleSchema }).strict();
+export const subtaskUpdateSchema = z.object({ title: subtaskTitleSchema }).strict();
+export const subtaskOrderSchema = z.object({ ids: z.array(idSchema).min(1).max(100) }).strict();
+export const subtaskCheckSchema = z.object({ instanceId: idSchema, done: z.boolean() }).strict();
+
+export const templateCreateSchema = z
+  .object({
+    name: z.string().trim().min(1, 'Name the template').max(80),
+    todoIds: z.array(idSchema).min(1, 'Pick at least one todo').max(50),
+    isShared: z.boolean().default(false),
+  })
+  .strict();
+export const templateUpdateSchema = z
+  .object({ name: z.string().trim().min(1).max(80), isShared: z.boolean() })
+  .partial()
+  .strict();
+export const templateApplySchema = z
+  .object({ startDate: dateSchema, projectId: idSchema.nullable().default(null) })
+  .strict();
+
+export const goalCreateSchema = z
+  .object({
+    title: z.string().trim().min(1, 'Name the goal').max(120),
+    targetPerPerson: z.number().int().min(1).max(50),
+    todoId: idSchema.nullable().default(null),
+  })
+  .strict();
+export const goalUpdateSchema = z
+  .object({ title: z.string().trim().min(1).max(120), targetPerPerson: z.number().int().min(1).max(50), archived: z.boolean() })
+  .partial()
+  .strict();
+export const goalLinkSchema = z.object({ todoId: idSchema.nullable() }).strict();
+
+export const pauseCreateSchema = z
+  .object({ startDate: dateSchema, endDate: dateSchema, note: z.string().trim().max(200).default('') })
+  .strict()
+  .refine((v) => v.endDate >= v.startDate, { message: 'The pause must end on or after it starts', path: ['endDate'] });
+
+export const reviewQuerySchema = z.object({ week: dateSchema.optional() });
+
+export const photoFeedQuerySchema = z.object({
+  before: z
+    .string()
+    .regex(/^\d{1,16}_[0-9a-f-]{36}$/)
+    .optional(),
+  projectId: idSchema.optional(),
+  todoId: idSchema.optional(),
+  who: z.enum(['all', 'me', 'partner']).default('all'),
+});

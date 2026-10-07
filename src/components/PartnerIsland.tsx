@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { copy } from '../content/copy';
 import { get, getMe } from '../lib/api';
-import { dayMonth, dayName } from '../lib/format';
+import { dayMonth, dayName, relativeDay } from '../lib/format';
 import type { DayItem, Habit, Me, ProjectSummary, TodayView } from '../lib/types';
 import { HabitList } from './HabitList';
 import { ProjectCard } from './ProjectCard';
@@ -97,6 +97,12 @@ export default function PartnerIsland() {
         </button>
       </div>
 
+      {partner.pausedUntil && (
+        <p class="partner-banner mb-4">
+          <Icon name="pause" /> {first} is taking a break until {relativeDay(partner.pausedUntil, today.date).toLowerCase()}. Nudges are off.
+        </p>
+      )}
+
       <p class="faint mb-4">
         <Icon name="lock" class="inline-icon" /> {copy.partner.readOnly}{' '}
         <a href="/week?who=partner">See their week</a>
@@ -106,7 +112,7 @@ export default function PartnerIsland() {
         (today.items.length ? (
           <ul class="todo-list">
             {today.items.map((item: DayItem) => (
-              <TodoItem key={item.instanceId} item={item} today={today.date} onToggle={(i) => toggleItem(i, today.date, apply)} onOpen={(i) => setOpen({ todoId: i.todoId, instanceId: i.instanceId, item: i })} />
+              <TodoItem key={item.instanceId} item={item} today={today.date} onToggle={(i) => toggleItem(i, today.date, apply, state.reload)} onOpen={(i) => setOpen({ todoId: i.todoId, instanceId: i.instanceId, item: i })} />
             ))}
           </ul>
         ) : (
