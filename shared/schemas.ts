@@ -2,7 +2,7 @@
 import { z } from 'zod';
 import { isValidDate, isValidTimeZone } from './time';
 
-import { CATEGORIES, PROJECT_COLORS, REACTIONS } from './constants';
+import { CATEGORIES, PROJECT_COLORS, REACTIONS, STATUS_COLORS, STATUS_KINDS } from './constants';
 
 export { CATEGORIES, MAX_PHOTO_BYTES, MAX_PHOTOS_PER_TARGET, PHOTO_TYPES, PROJECT_COLORS, REACTIONS } from './constants';
 
@@ -21,6 +21,8 @@ export const recurrenceSchema = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('monthly'), monthDay: z.number().int().min(1).max(31) }),
 ]);
+
+export const prioritySchema = z.number().int().min(1).max(4);
 
 const todoFields = {
   title: z.string().trim().min(1, 'Give it a title').max(200),
@@ -49,6 +51,9 @@ export const todoCreateSchema = z
     isShared: z.boolean().default(false),
     assignee: assigneeSchema.default('either'),
     isJoint: z.boolean().default(false),
+    priority: prioritySchema.default(2),
+    deadlineDate: dateSchema.nullable().default(null),
+    deadlineTime: timeSchema.nullable().default(null),
   })
   .strict()
   .refine(endAfterStart, { message: 'End date must be on or after the start date', path: ['endDate'] })
@@ -70,6 +75,9 @@ export const todoUpdateSchema = z
     isShared: z.boolean(),
     assignee: assigneeSchema,
     isJoint: z.boolean(),
+    priority: prioritySchema,
+    deadlineDate: dateSchema.nullable(),
+    deadlineTime: timeSchema.nullable(),
   })
   .partial()
   .strict()
@@ -99,6 +107,8 @@ export const projectCreateSchema = z
     color: z.enum(PROJECT_COLORS).default('clay'),
     isPrivate: z.boolean().default(false),
     isShared: z.boolean().default(false),
+    deadlineDate: dateSchema.nullable().default(null),
+    deadlineTime: timeSchema.nullable().default(null),
   })
   .strict()
   .refine((v) => !(v.isShared && v.isPrivate), { message: 'A project can be private or shared, not both', path: ['isShared'] });
@@ -112,6 +122,8 @@ export const projectUpdateSchema = z
     isPrivate: z.boolean(),
     isShared: z.boolean(),
     archived: z.boolean(),
+    deadlineDate: dateSchema.nullable(),
+    deadlineTime: timeSchema.nullable(),
   })
   .partial()
   .strict()
@@ -228,5 +240,46 @@ export const timeEntryCreateSchema = z
   .refine((v) => v.endedAt - v.startedAt <= 24 * 3600_000, { message: 'Entries are limited to 24 hours', path: ['endedAt'] });
 export const timeEntryUpdateSchema = z
   .object({ startedAt: msSchema, endedAt: msSchema, note: z.string().trim().max(300) })
+  .partial()
+  .strict();
+
+// --- Statuses, board, tomorrow's habits ---
+
+export const statusNameSchema = z.string().trim().min(1, 'Name the status').max(40);
+export const statusCreateSchema = z
+  .object({ name: statusNameSchema, color: z.enum(STATUS_COLORS).default('ink'), kind: z.enum(STATUS_KINDS) })
+  .strict();
+/** Kind is fixed once created. */
+export const statusUpdateSchema = z
+  .object({ name: statusNameSchema, color: z.enum(STATUS_COLORS), archived: z.boolean(), isDefault: z.literal(true) })
+  .partial()
+  .strict();
+export const statusOrderSchema = z.object({ ids: z.array(idSchema).min(1).max(50) }).strict();
+
+export const blockerNoteSchema = z.string().trim().min(1, 'Say what it is waiting on').max(300);
+export const setStatusSchema = z.object({ statusId: idSchema, blocker: blockerNoteSchema.optional() }).strict();
+
+export const boardQuerySchema = z.object({
+  projectId: idSchema.optional(),
+  category: z.enum(CATEGORIES).optional(),
+});
+/** A board drop: optional new column (status), and the cards it lands between (null = column start/end). */
+export const boardMoveSchema = z
+  .object({
+    statusId: idSchema.optional(),
+    blocker: blockerNoteSchema.optional(),
+    beforeId: idSchema.nullable().default(null),
+    afterId: idSchema.nullable().default(null),
+  })
+  .strict();
+
+export const tomorrowActionSchema = z
+  .discriminatedUnion('action', [
+    z.object({ action: z.literal('keep') }).strict(),
+    z.object({ action: z.literal('skip') }).strict(),
+    z.object({ action: z.literal('time'), time: timeSchema }).strict(),
+  ]);
+export const changeFromTomorrowSchema = z
+  .object({ recurrence: recurrenceSchema, dueTime: timeSchema.nullable(), reminderTime: timeSchema.nullable() })
   .partial()
   .strict();

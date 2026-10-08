@@ -7,6 +7,9 @@ import { placeholders, projectDto, type Category, type ProjectDto, type ProjectR
 import { badRequest, notFound } from '../http';
 import { getPartner, privacyFilter, SHARED_SQL } from './access';
 import { STATUS_SQL } from './pause';
+import { compareDeadlines } from '../../shared/deadline';
+import type { StatusKind } from '../../shared/constants';
+import { effectiveStatus, statusesFor } from './statuses';
 import { materializeUser, scheduleOf } from './todos';
 
 export type ItemStatus = InstanceStatus | 'upcoming';
@@ -43,6 +46,18 @@ export interface DayItem {
   isJoint: boolean;
   jointDone: string[];
   streak: number | null;
+  /** The instance's own status id (null = the default for its completion state). */
+  statusId: string | null;
+  /** Its workflow status (one of the owner's statuses). */
+  stage: { id: string; name: string; color: string; kind: StatusKind } | null;
+  /** 1 Low .. 4 Urgent. */
+  priority: number;
+  deadline: { date: string; time: string | null } | null;
+  /** Manual order key (fractional index). */
+  position: string | null;
+  /** The open blocker, when blocked. */
+  blocker: { note: string; since: number } | null;
+  completedAt: number | null;
 }
 
 type JoinedRow = TodoRow & {
@@ -58,15 +73,23 @@ type JoinedRow = TodoRow & {
   comment_count: number;
   subtask_total: number;
   subtask_done: number;
+  instance_status_id: string | null;
+  override_time: string | null;
+  blocker_note: string | null;
+  blocked_at: number | null;
+  completed_at: number | null;
 };
 
 const ITEM_SELECT = `
-  SELECT t.*, i.id AS instance_id, i.date, ${STATUS_SQL} AS status, i.completed_on, i.completed_by,
+  SELECT t.*, i.id AS instance_id, i.date, ${STATUS_SQL} AS status, i.completed_on, i.completed_by, i.completed_at,
          p.name AS project_name, p.color AS project_color, p.is_shared AS project_shared,
          (SELECT COUNT(*) FROM photos ph WHERE ph.todo_id = t.id) AS photo_count,
          (SELECT COUNT(*) FROM comments c WHERE c.todo_id = t.id) AS comment_count,
          (SELECT COUNT(*) FROM subtasks s WHERE s.todo_id = t.id) AS subtask_total,
-         (SELECT COUNT(*) FROM subtask_checks sc WHERE sc.instance_id = i.id) AS subtask_done
+         (SELECT COUNT(*) FROM subtask_checks sc WHERE sc.instance_id = i.id) AS subtask_done,
+         i.status_id AS instance_status_id, i.override_time,
+         (SELECT b.note FROM blockers b WHERE b.instance_id = i.id AND b.resolved_at IS NULL) AS blocker_note,
+         (SELECT b.blocked_at FROM blockers b WHERE b.instance_id = i.id AND b.resolved_at IS NULL) AS blocked_at
     FROM todo_instances i
     JOIN todos t ON t.id = i.todo_id
     LEFT JOIN projects p ON p.id = t.project_id`;
@@ -104,6 +127,9 @@ function baseItem(r: TodoWithProject, viewer: UserRow) {
     canEdit: r.user_id === viewer.id || shared,
     suggestedBy: r.suggested_by,
     isJoint: r.is_joint === 1 && shared,
+    priority: r.priority ?? 2,
+    deadline: r.deadline_date ? { date: r.deadline_date, time: r.deadline_time } : null,
+    position: r.position ?? null,
   };
 }
 
@@ -121,11 +147,54 @@ function toItem(r: JoinedRow, today: string, viewer: UserRow, streaks: Map<strin
     subtasks: r.subtask_total > 0 ? { done: r.subtask_done, total: r.subtask_total } : null,
     jointDone: [],
     streak: streaks.get(r.id) ?? null,
+    // A one-occurrence time override (tomorrow's habits) replaces the due time for that day.
+    dueTime: r.override_time ?? r.due_time,
+    statusId: r.instance_status_id,
+    stage: null,
+    blocker: r.blocker_note ? { note: r.blocker_note, since: r.blocked_at ?? 0 } : null,
+    completedAt: r.completed_at,
   };
 }
 
-function sortItems(items: DayItem[]): DayItem[] {
+/** List items for specific instances (boards), with statuses, reactions and blockers attached. */
+export async function boardItems(db: D1Database, viewer: UserRow, instanceIds: string[], todays: Map<string, string>): Promise<DayItem[]> {
+  const rows: JoinedRow[] = [];
+  for (let i = 0; i < instanceIds.length; i += 90) {
+    const part = instanceIds.slice(i, i + 90);
+    const { results } = await db.prepare(`${ITEM_SELECT} WHERE i.id IN (${placeholders(part.length)})`).bind(...part).all<JoinedRow>();
+    rows.push(...results);
+  }
+  const streaks = await streaksFor(db, rows, [...todays.values()].sort().pop() ?? '');
+  const items = rows.map((r) => toItem(r, todays.get(r.user_id) ?? r.date, viewer, streaks));
+  await attachReactions(db, items);
+  return items;
+}
+
+/** Is an item overdue (deadline passed, not done) as of `today`? */
+export function isOverdue(i: Pick<DayItem, 'deadline' | 'status'>, today: string): boolean {
+  return !!i.deadline && i.status !== 'done' && i.deadline.date < today;
+}
+
+/**
+ * Default order: overdue first, then priority (Urgent..Low), then deadline (soonest first), then manual order,
+ * then due time and title as tie-breakers.
+ */
+export function sortItems<T extends Pick<DayItem, 'deadline' | 'status' | 'priority' | 'position' | 'dueTime' | 'title'>>(items: T[], today = ''): T[] {
   return items.sort((a, b) => {
+    const ao = isOverdue(a, today) ? 0 : 1;
+    const bo = isOverdue(b, today) ? 0 : 1;
+    if (ao !== bo) return ao - bo;
+    if (a.priority !== b.priority) return b.priority - a.priority;
+    const d = compareDeadlines(
+      { date: a.deadline?.date ?? null, time: a.deadline?.time ?? null },
+      { date: b.deadline?.date ?? null, time: b.deadline?.time ?? null },
+    );
+    if (d) return d;
+    if (a.position !== b.position) {
+      if (!a.position) return 1;
+      if (!b.position) return -1;
+      return a.position < b.position ? -1 : 1;
+    }
     const at = a.dueTime ?? '99:99';
     const bt = b.dueTime ?? '99:99';
     if (at !== bt) return at < bt ? -1 : 1;
@@ -154,8 +223,18 @@ export async function loadHistories(db: D1Database, todoIds: string[], since: st
   return map;
 }
 
-/** Attaches reactions to items (by instance). */
+/** Resolves each item's workflow status from its owner's statuses. */
+async function attachStages(db: D1Database, items: DayItem[]): Promise<void> {
+  const map = await statusesFor(db, items.map((i) => i.ownerId));
+  for (const it of items) {
+    const s = effectiveStatus(map.get(it.ownerId) ?? [], it.statusId, it.status === 'done');
+    it.stage = s ? { id: s.id, name: s.name, color: s.color, kind: s.kind } : null;
+  }
+}
+
+/** Attaches reactions, joint check-ins and workflow statuses to items. */
 async function attachReactions(db: D1Database, items: DayItem[]): Promise<void> {
+  await attachStages(db, items);
   const ids = items.map((i) => i.instanceId).filter((x): x is string => !!x);
   const byInstance = new Map<string, { userId: string; emoji: string }[]>();
   for (let i = 0; i < ids.length; i += 90) {
@@ -200,10 +279,11 @@ function todayRows(db: D1Database, userId: string, today: string, extra: string)
         WHERE i.user_id = ?
           AND (i.date = ?
                OR (t.recurrence = 'none' AND i.status = 'pending' AND i.date < ?)
-               OR (t.recurrence = 'none' AND i.status = 'done' AND i.date < ? AND i.completed_on = ?))
+               OR (t.recurrence = 'none' AND i.status = 'done' AND i.date < ? AND i.completed_on = ?)
+               OR (t.recurrence = 'none' AND i.status = 'pending' AND t.deadline_date IS NOT NULL AND t.deadline_date < ?))
           ${extra}`,
     )
-    .bind(userId, today, today, today, today)
+    .bind(userId, today, today, today, today, today)
     .all<JoinedRow>();
 }
 
@@ -223,13 +303,13 @@ export async function todayView(db: D1Database, owner: UserRow, viewer: UserRow,
     theirs = (await todayRows(db, partner.id, partnerToday, ` AND ${SHARED_SQL}`)).results;
   }
   const streaks = await streaksFor(db, [...own.results, ...theirs], today);
-  const items = sortItems([
-    ...own.results.map((r) => toItem(r, today, viewer, streaks)),
-    ...theirs.map((r) => toItem(r, partnerToday, viewer, streaks)),
-  ]);
+  const items = sortItems(
+    [...own.results.map((r) => toItem(r, today, viewer, streaks)), ...theirs.map((r) => toItem(r, partnerToday, viewer, streaks))],
+    today,
+  );
   await attachReactions(db, items);
-  // Paused occurrences don't count towards the day.
-  const counted = items.filter((i) => i.status !== 'paused');
+  // Paused and skipped occurrences don't count towards the day.
+  const counted = items.filter((i) => i.status !== 'paused' && i.status !== 'skipped');
   return {
     date: today,
     timezone: owner.timezone,
@@ -241,7 +321,7 @@ export async function todayView(db: D1Database, owner: UserRow, viewer: UserRow,
 /** True when the user has at least one item of their own today and every one is done (private ones included). */
 export async function allDoneToday(db: D1Database, owner: UserRow, now: number): Promise<boolean> {
   const v = await todayView(db, owner, owner, now);
-  const mine = v.items.filter((i) => (i.ownerId === owner.id || i.assignedTo === owner.id) && i.status !== 'paused');
+  const mine = v.items.filter((i) => (i.ownerId === owner.id || i.assignedTo === owner.id) && i.status !== 'paused' && i.status !== 'skipped');
   return mine.length > 0 && mine.every((i) => i.status === 'done');
 }
 
@@ -304,6 +384,10 @@ async function rangeItems(
           subtasks: null,
           jointDone: [],
           streak: null,
+          statusId: null,
+          stage: null,
+          blocker: null,
+          completedAt: null,
         });
       }
     }
@@ -335,7 +419,7 @@ export async function rangeView(
     from,
     to,
     today,
-    days: dateRange(from, to).map((date) => ({ date, items: sortItems(byDate.get(date) ?? []) })),
+    days: dateRange(from, to).map((date) => ({ date, items: sortItems(byDate.get(date) ?? [], today) })),
   };
 }
 
@@ -463,6 +547,11 @@ export interface ProjectTodo {
   photoCount: number;
   /** Minutes tracked on it (by you, and your partner's on todos you can see). */
   minutes: number;
+  priority: number;
+  deadline: { date: string; time: string | null } | null;
+  position: string | null;
+  stage: { id: string; name: string; color: string; kind: StatusKind } | null;
+  blocker: { note: string; since: number } | null;
 }
 
 /** A project as the viewer sees it: their own, their partner's (non-private), or a shared one. */
@@ -483,16 +572,30 @@ export async function projectView(db: D1Database, viewer: UserRow, projectId: st
           (SELECT ${STATUS_SQL} FROM todo_instances i WHERE i.todo_id = t.id ORDER BY i.date DESC LIMIT 1) AS status,
           (SELECT COUNT(*) FROM photos ph WHERE ph.todo_id = t.id) AS photo_count,
           (SELECT COALESCE(SUM(te.ended_at - te.started_at), 0) FROM time_entries te
-            WHERE te.todo_id = t.id AND te.ended_at IS NOT NULL AND (te.user_id = ? OR te.user_id = ?)) AS tracked_ms
+            WHERE te.todo_id = t.id AND te.ended_at IS NOT NULL AND (te.user_id = ? OR te.user_id = ?)) AS tracked_ms,
+          (SELECT i.status_id FROM todo_instances i WHERE i.todo_id = t.id ORDER BY i.date DESC LIMIT 1) AS instance_status_id,
+          (SELECT b.note FROM blockers b WHERE b.todo_id = t.id AND b.resolved_at IS NULL ORDER BY b.blocked_at DESC LIMIT 1) AS blocker_note,
+          (SELECT b.blocked_at FROM blockers b WHERE b.todo_id = t.id AND b.resolved_at IS NULL ORDER BY b.blocked_at DESC LIMIT 1) AS blocked_at
          FROM todos t
         WHERE t.project_id = ? AND ${VISIBLE_TODO}
         ORDER BY t.start_date, t.created_at`,
     )
     .bind(viewer.id, partner?.id ?? '', projectId, viewer.id)
-    .all<TodoRow & { instance_id: string | null; status: InstanceStatus | null; photo_count: number; tracked_ms: number }>();
+    .all<
+      TodoRow & {
+        instance_id: string | null;
+        status: InstanceStatus | null;
+        photo_count: number;
+        tracked_ms: number;
+        instance_status_id: string | null;
+        blocker_note: string | null;
+        blocked_at: number | null;
+      }
+    >();
+  const statusMap = await statusesFor(db, results.map((t) => t.user_id));
   const recurringIds = results.filter((t) => t.recurrence !== 'none').map((t) => t.id);
   const histories = await loadHistories(db, recurringIds, addDays(today, -400));
-  const todos: ProjectTodo[] = results.map((t) => {
+  const unsorted: ProjectTodo[] = results.map((t) => {
     const recurring = t.recurrence !== 'none';
     const todoShared = shared || t.is_shared === 1;
     return {
@@ -511,9 +614,28 @@ export async function projectView(db: D1Database, viewer: UserRow, projectId: st
       stats: recurring ? habitStats(histories.get(t.id) ?? [], today) : null,
       photoCount: t.photo_count,
       minutes: Math.round(t.tracked_ms / 60_000),
+      priority: t.priority,
+      deadline: t.deadline_date ? { date: t.deadline_date, time: t.deadline_time } : null,
+      position: t.position,
+      stage: (() => {
+        const s = effectiveStatus(statusMap.get(t.user_id) ?? [], t.instance_status_id, t.status === 'done');
+        return s ? { id: s.id, name: s.name, color: s.color, kind: s.kind } : null;
+      })(),
+      blocker: t.blocker_note ? { note: t.blocker_note, since: t.blocked_at ?? 0 } : null,
     };
   });
+  // Default order (overdue, priority, deadline, manual), without touching the returned objects.
+  const todos = sortItems(
+    unsorted.map((t, idx) => ({ idx, deadline: t.deadline, status: (t.status ?? 'pending') as ItemStatus, priority: t.priority, position: t.position, dueTime: t.dueTime, title: t.title })),
+    today,
+  ).map((o) => unsorted[o.idx]!);
   const oneOff = todos.filter((t) => t.stats === null);
+  // Todos due after the project itself.
+  const late = p.deadline_date
+    ? todos
+        .filter((t) => t.deadline && `${t.deadline.date} ${t.deadline.time ?? '99:99'}` > `${p.deadline_date} ${p.deadline_time ?? '99:99'}`)
+        .map((t) => ({ todoId: t.todoId, title: t.title, deadline: t.deadline! }))
+    : [];
   return {
     today,
     project: projectDto(p),
@@ -522,6 +644,8 @@ export async function projectView(db: D1Database, viewer: UserRow, projectId: st
     canAdd: isOwner || shared,
     progress: { done: oneOff.filter((t) => t.status === 'done').length, total: oneOff.length },
     minutesTotal: todos.reduce((s, t) => s + t.minutes, 0),
+    /** Todos whose deadline is later than the project's own. */
+    deadlineWarnings: late,
     todos,
   };
 }

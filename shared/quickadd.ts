@@ -4,7 +4,7 @@ import type { Recurrence } from './recurrence';
 import { addDays, daysInMonth, formatDate, isValidDate, parseDate, weekday } from './time';
 
 export type QuickCategory = 'personal' | 'work' | 'habit';
-export type TokenKind = 'date' | 'time' | 'reminder' | 'recurrence' | 'project' | 'category' | 'partner';
+export type TokenKind = 'date' | 'time' | 'reminder' | 'recurrence' | 'project' | 'category' | 'partner' | 'priority';
 
 export interface QuickAddResult {
   title: string;
@@ -18,6 +18,8 @@ export interface QuickAddResult {
   category: QuickCategory | null;
   /** "for partner": turn the todo into a suggestion for the partner. */
   forPartner: boolean;
+  /** "!low" / "!medium" / "!high" / "!urgent" -> 1..4; null when not given. */
+  priority: number | null;
   /** The pieces that were understood, in input order, for the preview. */
   tokens: { kind: TokenKind; text: string }[];
 }
@@ -102,7 +104,14 @@ interface Rule {
 }
 
 // Each pattern is tried in order against what's left of the input. Prefixes like "on"/"at"/"by" are eaten too.
+const PRIORITY_WORDS: Record<string, number> = { low: 1, medium: 2, med: 2, normal: 2, high: 3, urgent: 4 };
+
 const RULES: Rule[] = [
+  {
+    kind: 'priority',
+    re: /(?:^|\s)!(low|medium|med|normal|high|urgent)\b/i,
+    apply: (m, r) => ((r.priority = PRIORITY_WORDS[m[1]!.toLowerCase()]!), true),
+  },
   {
     kind: 'partner',
     re: /(?:^|\s)for\s+(?:my\s+)?partner\b/i,
@@ -308,6 +317,7 @@ export function parseQuickAdd(input: string, today: string): QuickAddResult {
     projectName: null,
     category: null,
     forPartner: false,
+    priority: null,
     tokens: [],
   };
   let rest = ` ${input.replace(/\s+/g, ' ').trim()} `;

@@ -28,6 +28,8 @@ export interface ProjectRow {
   color: string;
   is_private: number;
   is_shared: number;
+  deadline_date: string | null;
+  deadline_time: string | null;
   archived_at: number | null;
   created_at: number;
   updated_at: number;
@@ -51,6 +53,10 @@ export interface TodoRow {
   is_shared: number;
   assigned_to: string | null;
   is_joint: number;
+  priority: number;
+  deadline_date: string | null;
+  deadline_time: string | null;
+  position: string | null;
   suggested_by: string | null;
   materialized_through: string | null;
   created_at: number;
@@ -70,6 +76,9 @@ export interface InstanceRow {
   reminder_at: number | null;
   reminded_at: number | null;
   paused: number;
+  skipped: number;
+  override_time: string | null;
+  status_id: string | null;
   created_at: number;
 }
 
@@ -132,6 +141,7 @@ export interface ProjectDto {
   isShared: boolean;
   ownerId: string;
   archived: boolean;
+  deadline: { date: string; time: string | null } | null;
   createdAt: number;
 }
 
@@ -146,6 +156,7 @@ export function projectDto(p: ProjectRow): ProjectDto {
     isShared: p.is_shared === 1,
     ownerId: p.user_id,
     archived: p.archived_at !== null,
+    deadline: p.deadline_date ? { date: p.deadline_date, time: p.deadline_time } : null,
     createdAt: p.created_at,
   };
 }
@@ -167,6 +178,8 @@ export interface TodoDto {
   assignedTo: string | null;
   isJoint: boolean;
   ownerId: string;
+  priority: number;
+  deadline: { date: string; time: string | null } | null;
   suggestedBy: string | null;
   createdAt: number;
 }
@@ -188,6 +201,8 @@ export function todoDto(t: TodoRow): TodoDto {
     assignedTo: t.assigned_to,
     isJoint: t.is_joint === 1,
     ownerId: t.user_id,
+    priority: t.priority,
+    deadline: t.deadline_date ? { date: t.deadline_date, time: t.deadline_time } : null,
     suggestedBy: t.suggested_by,
     createdAt: t.created_at,
   };

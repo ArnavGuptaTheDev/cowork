@@ -43,12 +43,24 @@ class Stmt {
   }
 }
 
-export function createTestD1(): D1Database & { sqlite: DatabaseSync } {
+const MIGRATIONS_DIR = join(import.meta.dirname, '..', '..', 'migrations');
+
+export function migrationFiles(): string[] {
+  return readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort();
+}
+
+/** Applies one migration file to a test database (for testing a migration against existing data). */
+export function applyMigration(d1: { sqlite: DatabaseSync }, file: string): void {
+  d1.sqlite.exec(readFileSync(join(MIGRATIONS_DIR, file), 'utf8'));
+}
+
+/** In-memory D1 with every migration applied, or only those sorting before `stopBefore`. */
+export function createTestD1(opts: { stopBefore?: string } = {}): D1Database & { sqlite: DatabaseSync } {
   const db = new DatabaseSync(':memory:');
   db.exec('PRAGMA foreign_keys = ON;');
-  const dir = join(import.meta.dirname, '..', '..', 'migrations');
-  for (const f of readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()) {
-    db.exec(readFileSync(join(dir, f), 'utf8'));
+  for (const f of migrationFiles()) {
+    if (opts.stopBefore && f >= opts.stopBefore) break;
+    db.exec(readFileSync(join(MIGRATIONS_DIR, f), 'utf8'));
   }
   const d1 = {
     sqlite: db,

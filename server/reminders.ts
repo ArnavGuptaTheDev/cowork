@@ -7,6 +7,10 @@ import { pausedOn } from './services/pause';
 import { reconcileCalendars, type GcalEnv } from './services/gcal';
 import { materializeUser } from './services/todos';
 import { todayView } from './services/views';
+import { tomorrowHabits } from './services/tomorrow';
+import { DEADLINE_PUSH_TIME } from '../shared/constants';
+import { addDays } from '../shared/time';
+import { notifyOnce } from './services/notify';
 import { localDate, localTime } from '../shared/time';
 
 /** Reminders older than this are dropped instead of sent late (e.g. after an outage). */
@@ -58,7 +62,7 @@ async function sendDueReminders(env: PushEnv, now: number, fetchFn: typeof fetch
        LEFT JOIN projects p ON p.id = t.project_id
        JOIN users u ON u.id = i.user_id
        LEFT JOIN users pu ON pu.id = u.partner_id
-      WHERE i.status = 'pending' AND i.paused = 0 AND i.reminded_at IS NULL AND i.reminder_at IS NOT NULL
+      WHERE i.status = 'pending' AND i.paused = 0 AND i.skipped = 0 AND i.reminded_at IS NULL AND i.reminder_at IS NOT NULL
         AND i.reminder_at <= ? AND i.reminder_at > ?
       ORDER BY i.reminder_at
       LIMIT 500`,
@@ -123,7 +127,8 @@ async function sendWrapups(env: PushEnv, users: UserRow[], now: number, fetchFn:
       .run();
     if (!claim.meta.changes) continue;
     const mine = await todayView(env.DB, u, u, now);
-    if (mine.summary.total === 0) continue;
+    const upcoming = await tomorrowHabits(env.DB, u, now);
+    if (mine.summary.total === 0 && upcoming.habits.length === 0) continue;
     const left = mine.summary.total - mine.summary.done;
     let body = left === 0 ? `All ${mine.summary.done} done. Lovely.` : `${mine.summary.done} done, ${left} left.`;
     const partner = u.partner_id ? byId.get(u.partner_id) : undefined;
@@ -131,6 +136,12 @@ async function sendWrapups(env: PushEnv, users: UserRow[], now: number, fetchFn:
       // Partner's count excludes their private todos.
       const theirs = await todayView(env.DB, partner, u, now);
       body += ` ${publicUser(partner).name.split(' ')[0]}: ${theirs.summary.done}/${theirs.summary.total}.`;
+    }
+    // Tomorrow's habits ride along in the same push (never a separate one per habit).
+    const tomorrow = await tomorrowHabits(env.DB, u, now);
+    if (tomorrow.habits.length) {
+      const list = tomorrow.habits.slice(0, 4).map((h) => (h.time ? `${h.title} ${h.time}` : h.title));
+      body += ` Tomorrow: ${list.join(', ')}${tomorrow.habits.length > 4 ? '…' : ''}.`;
     }
     sent += await sendPushToUser(
       env,
@@ -140,6 +151,57 @@ async function sendWrapups(env: PushEnv, users: UserRow[], now: number, fetchFn:
     );
   }
   return sent;
+}
+
+/**
+ * Deadline pushes: the day before and on the morning of a deadline, at DEADLINE_PUSH_TIME in the owner's time
+ * zone (sent within the following 4 hours, once each). Done todos are skipped; shared ones go to the assignee,
+ * or both of you.
+ */
+export async function sendDeadlinePushes(env: PushEnv, users: UserRow[], now: number, paused: Set<string>) {
+  let sent = 0;
+  const byId = new Map(users.map((u) => [u.id, u]));
+  for (const u of users) {
+    const local = localTime(now, u.timezone);
+    if (local < DEADLINE_PUSH_TIME || minutesBetween(DEADLINE_PUSH_TIME, local) >= 240) continue;
+    const today = localDate(now, u.timezone);
+    const tomorrow = addDays(today, 1);
+    const { results } = await env.DB.prepare(
+      `SELECT t.id, t.title, t.deadline_date, t.deadline_time, t.assigned_to,
+              (t.is_shared = 1 OR COALESCE(p.is_shared, 0) = 1) AS shared
+         FROM todos t LEFT JOIN projects p ON p.id = t.project_id
+        WHERE t.user_id = ? AND t.deadline_date IN (?, ?)
+          AND NOT (t.recurrence = 'none' AND EXISTS (SELECT 1 FROM todo_instances i WHERE i.todo_id = t.id AND i.status = 'done'))`,
+    )
+      .bind(u.id, today, tomorrow)
+      .all<{ id: string; title: string; deadline_date: string; deadline_time: string | null; assigned_to: string | null; shared: number }>();
+    for (const t of results) {
+      const kind = t.deadline_date === today ? 'deadline_day' : 'deadline_eve';
+      const partner = u.partner_id ? byId.get(u.partner_id) : undefined;
+      const recipients = reminderRecipients({
+        user_id: u.id,
+        shared: t.shared,
+        assigned_to: t.assigned_to,
+        partner_id: u.partner_id,
+        partner_partner_id: partner?.partner_id ?? null,
+      }).filter((id) => !paused.has(id));
+      for (const to of recipients) {
+        await notifyOnce(env, to, kind, `${t.id}:${t.deadline_date}`, {
+          title: kind === 'deadline_day' ? `Due today${t.deadline_time ? ` at ${t.deadline_time}` : ''}: ${t.title}` : `Due tomorrow: ${t.title}`,
+          body: kind === 'deadline_day' ? 'Today is the deadline.' : 'The deadline is tomorrow.',
+          url: `/today?todo=${t.id}`,
+          tag: `deadline-${t.id}`,
+        });
+        sent += 1;
+      }
+    }
+  }
+  return sent;
+}
+
+function minutesBetween(a: string, b: string): number {
+  const m = (x: string) => Number(x.slice(0, 2)) * 60 + Number(x.slice(3, 5));
+  return m(b) - m(a);
 }
 
 export async function runReminders(env: PushEnv & Partial<GcalEnv>, now: number, fetchFn: typeof fetch = fetch) {
@@ -154,6 +216,7 @@ export async function runReminders(env: PushEnv & Partial<GcalEnv>, now: number,
   const paused = await pausedToday(env, users, now);
   const reminders = await sendDueReminders(env, now, fetchFn, paused);
   const wrapups = await sendWrapups(env, users, now, fetchFn, paused);
+  const deadlines = await sendDeadlinePushes(env, users, now, paused);
   // Safety net for Google Calendar: drop partner copies of todos that are no longer shared with them.
   let calendarCleaned = 0;
   if (env.CALENDAR_TOKEN_KEY && env.GOOGLE_CLIENT_ID) {
@@ -162,5 +225,5 @@ export async function runReminders(env: PushEnv & Partial<GcalEnv>, now: number,
       return 0;
     });
   }
-  return { users: users.length, due: reminders.due, sent: reminders.sent, wrapups, calendarCleaned };
+  return { users: users.length, due: reminders.due, sent: reminders.sent, wrapups, deadlines, calendarCleaned };
 }

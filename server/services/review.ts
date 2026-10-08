@@ -35,13 +35,15 @@ export interface ReviewStats {
   bestDay: DayStat | null;
   worstDay: DayStat | null;
   streaks: { title: string; current: number; best: number }[];
+  /** Open blockers right now, and the one that has waited longest. */
+  blocked: { count: number; longest: { title: string; note: string; since: number } | null };
   /** Minutes tracked per day (phase 3), Mon..Sun. */
   minutesByDay: number[];
   minutesTotal: number;
 }
 
 /** Pure: turns grouped rows into the review numbers. Exported for tests. */
-export function summarizeWeek(rows: ReviewRow[], weekStart: string): Omit<ReviewStats, 'streaks' | 'minutesByDay' | 'minutesTotal'> {
+export function summarizeWeek(rows: ReviewRow[], weekStart: string): Omit<ReviewStats, 'streaks' | 'minutesByDay' | 'minutesTotal' | 'blocked'> {
   const dates = dateRange(weekStart, addDays(weekStart, 6));
   const days = new Map<string, DayStat>(dates.map((d) => [d, { date: d, done: 0, missed: 0, open: 0 }]));
   const cats = new Map<string, { category: string; done: number; total: number }>();
@@ -148,5 +150,21 @@ export async function reviewFor(db: D1Database, user: UserRow, viewer: UserRow, 
     .sort((a, b) => b.current - a.current)
     .slice(0, 5);
 
-  return { ...base, streaks, minutesByDay, minutesTotal: minutesByDay.reduce((a, b) => a + b, 0) };
+  const { results: blocked } = await db
+    .prepare(
+      `SELECT t.title, b.note, b.blocked_at FROM blockers b
+         JOIN todos t ON t.id = b.todo_id LEFT JOIN projects p ON p.id = t.project_id
+        WHERE t.user_id = ? AND b.resolved_at IS NULL ${privacyFilter(asPartner)}
+        ORDER BY b.blocked_at ASC`,
+    )
+    .bind(user.id)
+    .all<{ title: string; note: string; blocked_at: number }>();
+  const first = blocked[0];
+  return {
+    ...base,
+    streaks,
+    minutesByDay,
+    minutesTotal: minutesByDay.reduce((a, b) => a + b, 0),
+    blocked: { count: blocked.length, longest: first ? { title: first.title, note: first.note, since: first.blocked_at } : null },
+  };
 }

@@ -8,6 +8,7 @@ import { structureRoutes } from './routes/structure';
 import { calendarRoutes } from './routes/calendar';
 import { exportRoutes } from './routes/export';
 import { timeRoutes } from './routes/time';
+import { workflowRoutes } from './routes/workflow';
 import { authRoutes } from './routes/auth';
 import { meRoutes } from './routes/me';
 import { photoRoutes } from './routes/photos';
@@ -31,6 +32,7 @@ export function createApp() {
   authed.route('/', interactRoutes);
   authed.route('/', structureRoutes);
   authed.route('/', timeRoutes);
+  authed.route('/', workflowRoutes);
   authed.route('/', calendarRoutes);
   authed.route('/', exportRoutes);
   authed.route('/', suggestionRoutes);

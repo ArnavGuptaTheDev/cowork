@@ -1,8 +1,11 @@
 // Streaks and completion rates from a recurring todo's instance history.
 import { addDays } from './time';
 
-/** 'paused': the owner was in pause mode that day; it neither counts nor breaks a streak. */
-export type InstanceStatus = 'pending' | 'done' | 'missed' | 'paused';
+/**
+ * 'paused': the owner was in pause mode that day. 'skipped': the occurrence was skipped ahead of time
+ * (e.g. from the evening wrap-up). Neither counts nor breaks a streak.
+ */
+export type InstanceStatus = 'pending' | 'done' | 'missed' | 'paused' | 'skipped';
 
 export interface HistoryEntry {
   date: string;
@@ -26,7 +29,7 @@ export interface HabitStats {
 export function habitStats(entries: HistoryEntry[], today: string, windowDays = 30): HabitStats {
   // Paused days are skipped entirely: streaks freeze instead of breaking.
   const sorted = [...entries]
-    .filter((e) => e.date <= today && e.status !== 'paused')
+    .filter((e) => e.date <= today && e.status !== 'paused' && e.status !== 'skipped')
     .sort((a, b) => (a.date < b.date ? -1 : 1));
 
   let best = 0;

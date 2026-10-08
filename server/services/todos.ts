@@ -8,12 +8,20 @@ import { badRequest, forbidden, notFound } from '../http';
 import { editableTodo, getPartner, todoAccess, type TodoAccess } from './access';
 import { loadPauses, pausedOn, type PauseRange } from './pause';
 import { deletePhotoObjects } from './photos';
+import { keyBetween } from '../../shared/fractional';
+import { effectiveStatus, resolveTargetStatus, statusesFor, type StatusRow } from './statuses';
 
 export type { TodoAccess };
 
 /** Create input; the sharing fields are optional for internal callers (suggestions, templates). */
-export type CreateTodoInput = Omit<TodoCreateInput, 'isShared' | 'assignee' | 'isJoint'> &
-  Partial<Pick<TodoCreateInput, 'isShared' | 'assignee' | 'isJoint'>>;
+export type CreateTodoInput = Omit<TodoCreateInput, 'isShared' | 'assignee' | 'isJoint' | 'priority' | 'deadlineDate' | 'deadlineTime'> &
+  Partial<Pick<TodoCreateInput, 'isShared' | 'assignee' | 'isJoint' | 'priority' | 'deadlineDate' | 'deadlineTime'>>;
+
+/** A manual-order key after everything the user already has. */
+export async function nextPosition(db: D1Database, userId: string): Promise<string> {
+  const r = await db.prepare('SELECT MAX(position) AS p FROM todos WHERE user_id = ?').bind(userId).first<{ p: string | null }>();
+  return keyBetween(r?.p ?? null, null);
+}
 
 /** How far back the materialiser will fill gaps (e.g. after nobody opened the app for a while). */
 export const MAX_BACKFILL_DAYS = 366;
@@ -90,7 +98,7 @@ export async function materializeUser(db: D1Database, user: UserRow, now: number
     db
       .prepare(
         `UPDATE todo_instances SET status = 'missed'
-          WHERE user_id = ? AND status = 'pending' AND date < ? AND paused = 0
+          WHERE user_id = ? AND status = 'pending' AND date < ? AND paused = 0 AND skipped = 0
             AND todo_id IN (SELECT id FROM todos WHERE user_id = ? AND recurrence != 'none')`,
       )
       .bind(user.id, today, user.id),
@@ -160,6 +168,10 @@ export async function createTodo(
     is_shared: input.isShared ? 1 : 0,
     assigned_to: shared && !input.isJoint ? assigneeId(user, partner?.id ?? null, input.assignee) : null,
     is_joint: input.isJoint ? 1 : 0,
+    priority: input.priority ?? 2,
+    deadline_date: input.deadlineDate ?? null,
+    deadline_time: input.deadlineDate ? (input.deadlineTime ?? null) : null,
+    position: await nextPosition(env.DB, user.id),
     suggested_by: extra.suggestedBy ?? null,
     materialized_through: materializedThrough,
     created_at: now,
@@ -168,13 +180,14 @@ export async function createTodo(
   const stmts: D1PreparedStatement[] = [
     env.DB.prepare(
       `INSERT INTO todos (id, user_id, project_id, title, notes, category, start_date, end_date, due_time, reminder_time,
-         recurrence, recurrence_weekdays, recurrence_month_day, is_private, is_shared, assigned_to, is_joint, suggested_by,
-         materialized_through, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         recurrence, recurrence_weekdays, recurrence_month_day, is_private, is_shared, assigned_to, is_joint, priority,
+         deadline_date, deadline_time, position, suggested_by, materialized_through, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
       row.id, row.user_id, row.project_id, row.title, row.notes, row.category, row.start_date, row.end_date,
       row.due_time, row.reminder_time, row.recurrence, row.recurrence_weekdays, row.recurrence_month_day,
-      row.is_private, row.is_shared, row.assigned_to, row.is_joint, row.suggested_by, row.materialized_through, row.created_at, row.updated_at,
+      row.is_private, row.is_shared, row.assigned_to, row.is_joint, row.priority, row.deadline_date, row.deadline_time,
+      row.position, row.suggested_by, row.materialized_through, row.created_at, row.updated_at,
     ),
   ];
   if (!recurring) {
@@ -201,7 +214,14 @@ export async function getOwnTodo(db: D1Database, userId: string, todoId: string)
  * Edits a todo. The owner may change anything; on a shared todo the partner may change everything except
  * where it lives and who sees it (project, privacy, sharing). Schedules always follow the owner's time zone.
  */
-export async function updateTodo(env: Env, editor: UserRow, todoId: string, patch: TodoUpdateInput, now: number) {
+export async function updateTodo(
+  env: Env,
+  editor: UserRow,
+  todoId: string,
+  patch: TodoUpdateInput,
+  now: number,
+  opts: { effectiveFrom?: string } = {},
+) {
   const db = env.DB;
   const access = await editableTodo(db, editor, todoId);
   const { todo: old, owner } = access;
@@ -250,8 +270,12 @@ export async function updateTodo(env: Env, editor: UserRow, todoId: string, patc
     is_shared: isShared,
     assigned_to: assignedTo,
     is_joint: isJoint,
+    priority: patch.priority ?? old.priority,
+    deadline_date: patch.deadlineDate !== undefined ? patch.deadlineDate : old.deadline_date,
+    deadline_time: patch.deadlineTime !== undefined ? patch.deadlineTime : old.deadline_time,
     updated_at: now,
   };
+  if (!next.deadline_date) next.deadline_time = null;
   if (next.end_date && next.end_date < next.start_date) throw badRequest('End date must be on or after the start date');
 
   const scheduleChanged =
@@ -263,6 +287,8 @@ export async function updateTodo(env: Env, editor: UserRow, todoId: string, patc
     next.recurrence_month_day !== old.recurrence_month_day;
 
   const today = localDate(now, owner.timezone);
+  // Schedule changes apply from today, or from a later day ("change permanently from tomorrow").
+  const from = opts.effectiveFrom && opts.effectiveFrom > today ? opts.effectiveFrom : today;
   const stmts: D1PreparedStatement[] = [];
   const wasRecurring = old.recurrence !== 'none';
 
@@ -292,9 +318,9 @@ export async function updateTodo(env: Env, editor: UserRow, todoId: string, patc
           `DELETE FROM todo_instances
             WHERE todo_id = ? AND status = 'pending' AND (date >= ? OR ? = 'none')
               AND id NOT IN (SELECT instance_id FROM photos WHERE instance_id IS NOT NULL)`,
-        ).bind(todoId, today, old.recurrence),
+        ).bind(todoId, from, old.recurrence),
       );
-      next.materialized_through = addDays(maxDate(next.start_date, today), -1);
+      next.materialized_through = addDays(maxDate(next.start_date, from), -1);
     }
   }
 
@@ -302,12 +328,14 @@ export async function updateTodo(env: Env, editor: UserRow, todoId: string, patc
     db.prepare(
       `UPDATE todos SET project_id = ?, title = ?, notes = ?, category = ?, start_date = ?, end_date = ?, due_time = ?,
          reminder_time = ?, recurrence = ?, recurrence_weekdays = ?, recurrence_month_day = ?, is_private = ?,
-         is_shared = ?, assigned_to = ?, is_joint = ?, materialized_through = ?, updated_at = ?
+         is_shared = ?, assigned_to = ?, is_joint = ?, priority = ?, deadline_date = ?, deadline_time = ?,
+         materialized_through = ?, updated_at = ?
        WHERE id = ?`,
     ).bind(
       next.project_id, next.title, next.notes, next.category, next.start_date, next.end_date, next.due_time,
       next.reminder_time, next.recurrence, next.recurrence_weekdays, next.recurrence_month_day, next.is_private,
-      next.is_shared, next.assigned_to, next.is_joint, next.materialized_through, now, todoId,
+      next.is_shared, next.assigned_to, next.is_joint, next.priority, next.deadline_date, next.deadline_time,
+      next.materialized_through, now, todoId,
     ),
   );
   if (scheduleChanged && recurring) stmts.push(...materializeStatements(db, owner, [next], today, now, await loadPauses(db, owner.id)));
@@ -370,11 +398,14 @@ export async function completeInstance(env: Env, actor: UserRow, instanceId: str
       return { inst: { ...inst, completed_by: null }, access, joint: { waiting: true } };
     }
   }
-  await env.DB.prepare(
-    `UPDATE todo_instances SET status = 'done', completed_at = ?, completed_on = ?, completed_by = ?, note = ? WHERE id = ?`,
-  )
-    .bind(now, today, actor.id, note, instanceId)
-    .run();
+  // Done: the status becomes the default done-kind status (NULL = default) and any open blocker closes.
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE todo_instances SET status = 'done', completed_at = ?, completed_on = ?, completed_by = ?, note = ?, status_id = NULL
+        WHERE id = ?`,
+    ).bind(now, today, actor.id, note, instanceId),
+    env.DB.prepare('UPDATE blockers SET resolved_at = ?, resolved_by = ? WHERE instance_id = ? AND resolved_at IS NULL').bind(now, actor.id, instanceId),
+  ]);
   return {
     inst: { ...inst, status: 'done' as const, completed_at: now, completed_on: today, completed_by: actor.id, note },
     access,
@@ -387,12 +418,60 @@ export async function uncompleteInstance(env: Env, actor: UserRow, instanceId: s
   const status = inst.recurrence !== 'none' && inst.date < today && inst.paused !== 1 ? 'missed' : 'pending';
   await env.DB.batch([
     env.DB.prepare('DELETE FROM instance_completions WHERE instance_id = ? AND user_id = ?').bind(instanceId, actor.id),
+    // Unticking returns to the default todo-kind status.
     env.DB.prepare(
-      `UPDATE todo_instances SET status = ?, completed_at = NULL, completed_on = NULL, completed_by = NULL WHERE id = ?`,
+      `UPDATE todo_instances SET status = ?, completed_at = NULL, completed_on = NULL, completed_by = NULL, status_id = NULL
+        WHERE id = ?`,
     ).bind(status, instanceId),
   ]);
   return { inst: { ...inst, status }, access };
 }
+
+/**
+ * Sets an instance's status. Done-kind completes it exactly like the checkbox (streaks, pushes, calendar);
+ * blocked-kind needs a note and opens a blocker; leaving blocked closes the blocker (history is kept).
+ */
+export async function setInstanceStatus(env: Env, actor: UserRow, instanceId: string, statusId: string, blockerNote: string | undefined, now: number) {
+  const { inst, access } = await actionableInstance(env.DB, actor, instanceId);
+  const target = await resolveTargetStatus(env.DB, access.owner, actor, statusId);
+  const list = (await statusesFor(env.DB, [access.owner.id])).get(access.owner.id)!;
+  const current = effectiveStatus(list, inst.status_id, inst.status === 'done');
+  const note = blockerNote?.trim();
+
+  if (target.kind === 'done') {
+    const r = await completeInstance(env, actor, instanceId, inst.note, now);
+    if (r.inst.status === 'done' && target.is_default !== 1) {
+      await env.DB.prepare('UPDATE todo_instances SET status_id = ? WHERE id = ?').bind(target.id, instanceId).run();
+    }
+    return { inst: r.inst, access, status: target, completed: r.inst.status === 'done', previous: current };
+  }
+  if (target.kind === 'blocked' && !note && current?.kind !== 'blocked') throw badRequest('Say what it is waiting on');
+  if (inst.status === 'done') await uncompleteInstance(env, actor, instanceId, now);
+
+  const stmts: D1PreparedStatement[] = [
+    env.DB.prepare('UPDATE todo_instances SET status_id = ? WHERE id = ?').bind(target.id, instanceId),
+  ];
+  const wasBlocked = current?.kind === 'blocked';
+  if (wasBlocked && (target.kind !== 'blocked' || note)) {
+    stmts.push(env.DB.prepare('UPDATE blockers SET resolved_at = ?, resolved_by = ? WHERE instance_id = ? AND resolved_at IS NULL').bind(now, actor.id, instanceId));
+  }
+  if (target.kind === 'blocked' && note) {
+    stmts.push(
+      env.DB.prepare('INSERT INTO blockers (id, todo_id, instance_id, note, blocked_at, blocked_by) VALUES (?, ?, ?, ?, ?, ?)').bind(
+        crypto.randomUUID(),
+        inst.todo_id,
+        instanceId,
+        note,
+        now,
+        actor.id,
+      ),
+    );
+  }
+  await env.DB.batch(stmts);
+  return { inst, access, status: target, completed: false, previous: current };
+}
+
+export type { StatusRow };
 
 /** Moves a pending one-off todo to another day (wrap-up, calendar drag, the notification's "Tomorrow"). */
 export async function rescheduleInstance(env: Env, actor: UserRow, instanceId: string, date: string, now: number) {

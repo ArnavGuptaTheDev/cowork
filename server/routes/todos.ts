@@ -83,10 +83,13 @@ todoRoutes.post('/projects', async (c) => {
   const now = c.get('now');
   const id = crypto.randomUUID();
   await c.env.DB.prepare(
-    `INSERT INTO projects (id, user_id, name, description, category, color, is_private, is_shared, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO projects (id, user_id, name, description, category, color, is_private, is_shared, deadline_date, deadline_time, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
-    .bind(id, user.id, input.name, input.description, input.category, input.color, input.isPrivate ? 1 : 0, input.isShared ? 1 : 0, now, now)
+    .bind(
+      id, user.id, input.name, input.description, input.category, input.color, input.isPrivate ? 1 : 0, input.isShared ? 1 : 0,
+      input.deadlineDate, input.deadlineDate ? input.deadlineTime : null, now, now,
+    )
     .run();
   const row = await c.env.DB.prepare('SELECT * FROM projects WHERE id = ?').bind(id).first<ProjectRow>();
   return c.json({ project: projectDto(row!) }, 201);
@@ -114,7 +117,8 @@ todoRoutes.patch('/projects/:id', async (c) => {
   }
   const archivedAt = input.archived === undefined ? p.archived_at : input.archived ? (p.archived_at ?? c.get('now')) : null;
   await c.env.DB.prepare(
-    `UPDATE projects SET name = ?, description = ?, category = ?, color = ?, is_private = ?, is_shared = ?, archived_at = ?, updated_at = ?
+    `UPDATE projects SET name = ?, description = ?, category = ?, color = ?, is_private = ?, is_shared = ?, archived_at = ?,
+       deadline_date = ?, deadline_time = ?, updated_at = ?
       WHERE id = ? AND user_id = ?`,
   )
     .bind(
@@ -125,6 +129,12 @@ todoRoutes.patch('/projects/:id', async (c) => {
       isPrivate,
       isShared,
       archivedAt,
+      input.deadlineDate !== undefined ? input.deadlineDate : p.deadline_date,
+      (input.deadlineDate !== undefined ? input.deadlineDate : p.deadline_date)
+        ? input.deadlineTime !== undefined
+          ? input.deadlineTime
+          : p.deadline_time
+        : null,
       c.get('now'),
       id,
       user.id,

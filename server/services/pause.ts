@@ -32,4 +32,4 @@ export async function activePause(db: D1Database, user: Pick<UserRow, 'id' | 'ti
 }
 
 /** SQL expression for an instance's displayed status (alias i). */
-export const STATUS_SQL = `CASE WHEN i.paused = 1 AND i.status != 'done' THEN 'paused' ELSE i.status END`;
+export const STATUS_SQL = `CASE WHEN i.status = 'done' THEN 'done' WHEN i.skipped = 1 THEN 'skipped' WHEN i.paused = 1 THEN 'paused' ELSE i.status END`;
