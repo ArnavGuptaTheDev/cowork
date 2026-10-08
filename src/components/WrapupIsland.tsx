@@ -3,6 +3,7 @@ import { addDays } from '../../shared/time';
 import { errorMessage, get, getMe, send } from '../lib/api';
 import { relativeDay } from '../lib/format';
 import type { DayItem, TodayView } from '../lib/types';
+import { TomorrowHabits } from './TomorrowHabits';
 import { Empty, ErrorBox, Icon, Loading, ProgressRing, Toasts, toast, useLoad } from './ui';
 
 /** Evening wrap-up: today's leftovers with one-tap "tomorrow", "pick a date" or "drop". */
@@ -130,6 +131,7 @@ export default function WrapupIsland() {
           })}
         </ul>
       )}
+      <TomorrowHabits />
       <p class="row center mt-6">
         <a class="btn quiet" href="/today">
           Back to today

@@ -6,10 +6,12 @@ import { addDays } from '../../shared/time';
 import { errorMessage, get, send } from '../lib/api';
 import { percent, prettyTime, relativeDay } from '../lib/format';
 import { assigneeLabel, nameFor } from '../lib/people';
-import type { DayItem, Photo, TodoDetail } from '../lib/types';
+import type { DayItem, Photo, Stage, TodoDetail } from '../lib/types';
 import { CommentThread } from './CommentThread';
 import { PhotoButtons, PhotoGrid, uploadPhotos } from './PhotoPicker';
 import { SubtaskList } from './SubtaskList';
+import { StatusPanel } from './StatusPanel';
+import { DeadlineBadge, PriorityMark } from './marks';
 import { TimerPanel } from './TimerPanel';
 import { TodoForm } from './TodoForm';
 import { ErrorBox, Icon, Loading, Sheet, toast } from './ui';
@@ -24,6 +26,8 @@ export function TodoSheet(props: {
   instanceId?: string | null;
   /** The row the sheet was opened from, when there is one (for its reactions). */
   item?: DayItem | null;
+  /** Its workflow status, when known (lists without a DayItem pass it separately). */
+  stage?: Stage | null;
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -207,6 +211,12 @@ export function TodoSheet(props: {
                 </span>
               )}
               {d.todo.isPrivate && <span class="chip ink">Private</span>}
+              {d.todo.priority !== 2 && (
+                <span class="chip">
+                  <PriorityMark value={d.todo.priority} always /> priority
+                </span>
+              )}
+              <DeadlineBadge deadline={d.todo.deadline} today={d.today} done={thisInstance?.status === 'done'} />
               {d.suggestedBy && <span class="chip plum">Suggested by {d.suggestedBy}</span>}
               {me && d.todo.ownerId !== me.user.id && <span class="chip">{nameFor(me, d.todo.ownerId)}'s</span>}
             </div>
@@ -292,6 +302,18 @@ export function TodoSheet(props: {
                 </div>
               </section>
             )}
+
+            <StatusPanel
+              todoId={d.todo.id}
+              title={d.todo.title}
+              instanceId={instanceId}
+              stage={props.stage ?? props.item?.stage}
+              canEdit={canEdit}
+              onChanged={() => {
+                void load();
+                props.onChanged();
+              }}
+            />
 
             <SubtaskList todoId={d.todo.id} instanceId={instanceId} canEdit={canEdit} onChanged={props.onChanged} />
 

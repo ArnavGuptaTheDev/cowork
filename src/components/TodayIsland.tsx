@@ -4,6 +4,7 @@ import { get, getMe } from '../lib/api';
 import { dayMonth, dayName, greeting, relativeDay } from '../lib/format';
 import type { DayItem, Me, TodayView } from '../lib/types';
 import { QuickAdd } from './QuickAdd';
+import { useListControls } from './ListControls';
 import { TodoForm } from './TodoForm';
 import { TodoItem } from './TodoItem';
 import { TodoSheet } from './TodoSheet';
@@ -28,6 +29,8 @@ export default function TodayIsland() {
     return { me, mine, partner };
   });
 
+  const lc = useListControls('today', state.data?.mine.date ?? '');
+
   const apply = (instanceId: string, status: DayItem['status']) =>
     state.setData((d) => {
       if (!d) return d;
@@ -39,7 +42,7 @@ export default function TodayIsland() {
   if (state.error || !state.data) return <ErrorBox message={state.error ?? 'Could not load today'} onRetry={state.reload} />;
 
   const { me, mine, partner } = state.data;
-  const { open, done } = sortForDisplay(mine.items);
+  const { open, done } = sortForDisplay(lc.apply(mine.items));
   const allDone = mine.summary.total > 0 && mine.summary.done === mine.summary.total;
 
   return (
@@ -87,6 +90,8 @@ export default function TodayIsland() {
 
         <div class="split-main">
           <QuickAdd today={mine.date} onSaved={state.reload} />
+          {mine.items.length > 0 && lc.controls}
+          {lc.active && open.length + done.length === 0 && mine.items.length > 0 && <p class="faint mt-2">Nothing matches this filter.</p>}
           {mine.items.length === 0 ? (
             <Empty title={copy.today.empty.title} body={copy.today.empty.body} icon="sun">
               <button type="button" class="btn" onClick={() => setCreating(true)}>

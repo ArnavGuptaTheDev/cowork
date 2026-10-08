@@ -2,6 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { PROJECT_COLORS } from '../../shared/constants';
 import { errorMessage, send } from '../lib/api';
 import type { Category, Project } from '../lib/types';
+import { TimeField } from './TimeField';
 import { Sheet, toast } from './ui';
 import { useMe } from './useMe';
 
@@ -12,6 +13,8 @@ export function ProjectForm(props: { open: boolean; project?: Project; onClose: 
   const [color, setColor] = useState<string>('clay');
   const [isPrivate, setPrivate] = useState(false);
   const [isShared, setShared] = useState(false);
+  const [deadlineDate, setDeadlineDate] = useState('');
+  const [deadlineTime, setDeadlineTime] = useState('');
   const me = useMe();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -24,6 +27,8 @@ export function ProjectForm(props: { open: boolean; project?: Project; onClose: 
     setColor(props.project?.color ?? 'clay');
     setPrivate(props.project?.isPrivate ?? false);
     setShared(props.project?.isShared ?? false);
+    setDeadlineDate(props.project?.deadline?.date ?? '');
+    setDeadlineTime(props.project?.deadline?.time ?? '');
     setError(null);
   }, [props.open]);
 
@@ -32,7 +37,16 @@ export function ProjectForm(props: { open: boolean; project?: Project; onClose: 
     if (!name.trim()) return setError('Give it a name');
     setBusy(true);
     try {
-      const body = { name: name.trim(), description, category, color, isPrivate: isShared ? false : isPrivate, isShared };
+      const body = {
+        name: name.trim(),
+        description,
+        category,
+        color,
+        isPrivate: isShared ? false : isPrivate,
+        isShared,
+        deadlineDate: deadlineDate || null,
+        deadlineTime: deadlineDate && deadlineTime ? deadlineTime : null,
+      };
       const { project } = props.project
         ? await send<{ project: Project }>('PATCH', `/api/projects/${props.project.id}`, body)
         : await send<{ project: Project }>('POST', '/api/projects', body);
@@ -87,6 +101,20 @@ export function ProjectForm(props: { open: boolean; project?: Project; onClose: 
             </label>
           ))}
         </fieldset>
+        <div class="field-row mt-4">
+          <div class="field">
+            <label class="label" for="pf-deadline">
+              Deadline
+            </label>
+            <input id="pf-deadline" class="input" type="date" value={deadlineDate} onInput={(e) => setDeadlineDate(e.currentTarget.value)} />
+          </div>
+          <div class="field">
+            <label class="label" for="pf-deadline-time">
+              By <span class="faint">(optional)</span>
+            </label>
+            <TimeField id="pf-deadline-time" value={deadlineTime} onChange={setDeadlineTime} placeholder="Any time" />
+          </div>
+        </div>
         <div class="field mt-4">
           <label class="label" for="pf-desc">
             Description

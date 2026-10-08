@@ -3,6 +3,7 @@ import { errorMessage, get, getMe, send } from '../lib/api';
 import { relativeDay } from '../lib/format';
 import { currentSubscription, disablePush, enablePush, pushSupported } from '../lib/push';
 import type { Me } from '../lib/types';
+import { StatusSettings } from './StatusSettings';
 import { TimeField } from './TimeField';
 import { Avatar, ErrorBox, Icon, Loading, Toasts, toast, useLoad } from './ui';
 
@@ -69,6 +70,7 @@ export default function SettingsIsland() {
       <Profile me={me} onSaved={state.reload} />
       <Appearance />
       <MoreLinks />
+      <StatusSettings />
       <Wrapup me={me} />
       <Pause me={me} />
       <Calendar />
@@ -278,6 +280,9 @@ function ExportData() {
 function MoreLinks() {
   return (
     <nav class="section card more-links" aria-label="More">
+      <a href="/board">
+        <Icon name="grid" /> All work board
+      </a>
       <a href="/review">
         <Icon name="chart" /> Weekly review
       </a>

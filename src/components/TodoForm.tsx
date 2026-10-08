@@ -60,6 +60,9 @@ interface FormState {
   isShared: boolean;
   assignee: 'me' | 'partner' | 'either';
   isJoint: boolean;
+  priority: number;
+  deadlineDate: string;
+  deadlineTime: string;
 }
 
 export type TodoFormDefaults = Partial<FormState>;
@@ -81,6 +84,9 @@ function initialState(today: string, todo?: Todo, defaults?: Partial<FormState>,
     isPrivate: todo?.isPrivate ?? false,
     isShared: todo?.isShared ?? false,
     isJoint: todo?.isJoint ?? false,
+    priority: todo?.priority ?? 2,
+    deadlineDate: todo?.deadline?.date ?? '',
+    deadlineTime: todo?.deadline?.time ?? '',
     assignee: !todo?.assignedTo ? 'either' : todo.assignedTo === meId ? 'me' : 'partner',
     ...defaults,
   };
@@ -183,6 +189,12 @@ export function TodoForm(props: {
       reminderTime: s.reminderTime || null,
       recurrence: toRecurrence(s),
     };
+    // Priority and deadline belong to your own todos (suggestions keep the original fields).
+    const planning = {
+      priority: s.priority,
+      deadlineDate: s.deadlineDate || null,
+      deadlineTime: s.deadlineDate && s.deadlineTime ? s.deadlineTime : null,
+    };
     try {
       if (props.mode === 'suggest') {
         const { id } = await send<{ id: string }>('POST', '/api/suggestions', common);
@@ -191,6 +203,7 @@ export function TodoForm(props: {
       } else if (props.mode === 'create') {
         const { todo } = await send<{ todo: Todo }>('POST', '/api/todos', {
           ...common,
+          ...planning,
           projectId: s.projectId || null,
           isPrivate: sharedNow ? false : s.isPrivate,
           isShared: s.isShared,
@@ -206,13 +219,14 @@ export function TodoForm(props: {
           ownerEditing
             ? {
                 ...common,
+                ...planning,
                 projectId: s.projectId || null,
                 isPrivate: sharedNow ? false : s.isPrivate,
                 isShared: s.isShared,
                 assignee: s.assignee,
                 isJoint: sharedNow && s.repeat !== 'none' && s.isJoint,
               }
-            : { ...common, ...(sharedNow ? { assignee: s.assignee } : {}) },
+            : { ...common, ...planning, ...(sharedNow ? { assignee: s.assignee } : {}) },
         );
         toast('Saved');
       }
@@ -403,6 +417,57 @@ export function TodoForm(props: {
             {typeof remind === 'number' && s.reminderTime && <span class="hint">At {prettyTime(s.reminderTime)}</span>}
           </div>
         </div>
+
+        {props.mode !== 'suggest' && (
+          <>
+            <fieldset class="segmented mt-4">
+              <legend>Priority</legend>
+              {(
+                [
+                  [1, 'Low'],
+                  [2, 'Medium'],
+                  [3, 'High'],
+                  [4, 'Urgent'],
+                ] as const
+              ).map(([v, l]) => (
+                <label key={v}>
+                  <input type="radio" name="tf-priority" checked={s.priority === v} onChange={() => set('priority', v)} />
+                  <span class={`prio-opt prio-opt-${v}`}>{l}</span>
+                </label>
+              ))}
+            </fieldset>
+            <div class="field-row mt-4">
+              <div class="field">
+                <label class="label" for="tf-deadline">
+                  Deadline <span class="faint">(must be done by)</span>
+                </label>
+                <input
+                  id="tf-deadline"
+                  class="input"
+                  type="date"
+                  value={s.deadlineDate}
+                  onInput={(e) => set('deadlineDate', e.currentTarget.value)}
+                />
+              </div>
+              <div class="field">
+                <label class="label" for="tf-deadline-time">
+                  By <span class="faint">(optional)</span>
+                </label>
+                <TimeField
+                  id="tf-deadline-time"
+                  value={s.deadlineTime}
+                  onChange={(v: string) => set('deadlineTime', v)}
+                  placeholder={s.deadlineDate ? 'Any time' : 'Pick a date first'}
+                />
+              </div>
+            </div>
+            {s.deadlineDate && (
+              <button type="button" class="btn quiet small" onClick={() => setS((p) => ({ ...p, deadlineDate: '', deadlineTime: '' }))}>
+                Clear deadline
+              </button>
+            )}
+          </>
+        )}
 
         <div class="field">
           <label class="label" for="tf-notes">

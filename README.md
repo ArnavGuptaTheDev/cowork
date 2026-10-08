@@ -18,6 +18,12 @@ A project, todo and habit app for couples. Each partner keeps their own projects
 - **Insight.** A weekly review with completion rate, by-weekday and by-category charts, best and worst day, streaks and time tracked, for both of you side by side. A photo timeline of every completion photo.
 - **Time.** Start and stop a timer on a todo (one at a time; it survives reloads), edit entries by hand, and see totals per todo, per project and in the review.
 - **Reminders.** Web Push with Done / Snooze 1h / Tomorrow buttons, an evening wrap-up push (21:00 by default) that opens a wrap-up screen for leftovers, and pause mode for holidays (no reminders or nudges, streaks freeze).
+- **Workflow.**
+  - **Statuses:** your own list of statuses (To do, In progress, Blocked, Done to start with), each with a colour and a fixed kind. Add, rename, recolour, reorder and archive them in Settings.
+  - **Blockers:** moving a todo to a blocked status asks what it's waiting on. Cards and rows show the note and how long it has waited, and the todo keeps a history of past blockers.
+  - **Priority and deadlines:** Low / Medium / High / Urgent (`!high` in quick add), and an optional "must be done by" date and time, separate from the scheduled day. Lists sort by priority, then deadline, then manual order, with filter and sort controls. Overdue items go to the top of Today, and deadline pushes arrive the day before and on the morning.
+  - **Boards:** a Kanban board for every project (`/board?project=…`) and an "All work" board across projects, filterable by category. Drag cards between and within columns (long-press on touch), or use the menu on each card.
+  - **Tomorrow's habits:** the wrap-up push and screen list tomorrow's habits. Keep them, change tomorrow only (new time or skip), or change them from tomorrow on.
 - **Integrations.** Optional one-way sync to a "CoWork" Google Calendar, and export of your data as JSON or CSV.
 
 **Stack:** Astro (static, TypeScript strict) + Preact islands · one Cloudflare Worker (static assets + Hono API + cron) · D1 · R2 · Web Push (VAPID) · Google OAuth (PKCE) · Vitest.
@@ -244,3 +250,28 @@ Then sign in at https://cowork.arnavg.me with the `SUPER_ADMIN_EMAIL` account, o
   - **JSON:** everything of yours, plus your partner's shared todos and their history, and comments on shared items. Your partner's own data is left out.
   - **CSV:** the two files cover the same todos (`todos.csv`) and their occurrences (`completions.csv`). Cells that start with `=`, `+`, `-` or `@` get a leading `'` so spreadsheets don't run them as formulas.
 - **Offline support was deliberately left out** at your request. The service worker still caches the app shell and shows an offline page; queued writes and conflict handling are not implemented.
+
+### Workflow: statuses, blockers, priority, deadlines, boards (migration 0005)
+
+- **Schema additions** (`migrations/0005_status_priority_deadlines.sql`, additive and backfilled, so it is safe on existing data):
+  - `statuses`: per-user rows with `name`, `color`, `kind` (`todo` / `active` / `blocked` / `done`), `position`, `is_default` and `archived_at`. The four defaults are seeded for every existing user, and `ensureStatuses` seeds them for new users on first use.
+  - `todo_instances.status_id`, `skipped` and `override_time`. Existing done occurrences point at Done and the rest at To do.
+  - `blockers`: one row per blocked spell (`note`, `blocked_at`/`blocked_by`, `resolved_at`/`resolved_by`), with a unique index allowing one open blocker per occurrence.
+  - `todos.priority` (1–4, default 2 = Medium), `todos.deadline_date`/`deadline_time`, `projects.deadline_date`/`deadline_time`, and `todos.position` (a fractional-index key for manual order, backfilled from creation time).
+  - No new environment variables or secrets.
+- **Status is per occurrence.** It lives on `todo_instances`, so each occurrence of a repeating todo starts at the default "to do" status. A NULL `status_id` means "the default for the occurrence's state" (default done if done, default to-do otherwise), so new occurrences need no extra writes and the checkbox keeps working unchanged.
+- **Kinds drive behaviour, names are cosmetic.** Choosing any done-kind status completes the todo through the same code as the checkbox (streaks, completion photos, partner pushes, calendar sync). Leaving done un-completes it. Choosing a blocked-kind status needs a note and opens a blocker; leaving blocked resolves it.
+- **Status rules.** A status in use can only be archived. You always keep at least one live to-do-kind and one done-kind status, and the default of a kind can't be deleted. Archiving a default hands the default role to the next live status of that kind. Up to 20 statuses.
+- **Whose statuses.** A todo uses its owner's statuses. When your partner moves a shared todo, the target is mapped by kind onto the owner's list (for example "Waiting" → the owner's default blocked status), and only the creator can delete it. On the All work board, partner cards sit in your columns by kind.
+- **Privacy.** Blockers on private todos (or todos in private projects) never reach the partner: not on boards, the partner's Today, the todo detail, or the weekly review's blocked count.
+- **Board ordering** uses fractional indexing (`shared/fractional.ts`): a move sends the neighbour ids, the server computes a key between them, and only the moved row changes. If the neighbours have changed underneath you, the server answers 409. Moves are optimistic: on any error the card goes back and the board reloads.
+- **What's on a board.** One-off todos appear once. Repeating todos appear only on days they're scheduled (today's occurrence). Done cards drop off after 14 days. Archived statuses are hidden unless they still hold cards. Your partner sees your project board read-only unless the project is shared.
+- **Drag and drop** is about 150 lines of pointer-event code with no library: mouse drags start after 8 px of movement, touch drags after a 320 ms long-press (moving earlier scrolls instead), and the board auto-scrolls near its edges. Every card also has a "Move to" menu (column, top, up, down, bottom) for keyboard and screen-reader users.
+- **Priority sort.** The default order is: overdue first, then priority (Urgent → Low), then deadline (earliest, dated before undated), then manual order, then time and title. Filter and sort choices are remembered per page in the browser.
+- **Deadlines.** "Due in N days" turns amber within 3 days, "Due today" and "Overdue" are stronger. Overdue one-offs appear at the top of Today. A project shows a warning when any of its todos has a deadline after the project's own.
+- **Deadline pushes** go out at 08:00 local time (sent between 08:00 and 12:00, so a late cron still delivers) on the day before and the morning of the deadline. Each is de-duplicated in `notification_log`, skipped for done todos, and goes to the same people as reminders.
+- **Tomorrow's habits** are your own repeating todos in the Habit category that are scheduled tomorrow (none while you're paused). They're added to the single wrap-up push, which is now also sent when today is empty but tomorrow has habits.
+  - **Tomorrow only:** stored on tomorrow's occurrence (created early to hold it), as `skipped` or an `override_time`. The reminder moves with it, keeping the same lead. "Keep" clears the override.
+  - **From tomorrow on:** changes the repeat rule and times starting tomorrow. Past occurrences, today and streaks are untouched.
+  - **Skipped isn't missed:** skipped occurrences are never marked missed and are left out of streaks, rates and the review.
+- **Weekly review** shows how many of your todos are blocked right now and the one that has waited longest.

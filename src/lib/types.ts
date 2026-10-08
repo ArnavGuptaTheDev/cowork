@@ -65,6 +65,32 @@ export interface DayItem {
   isJoint: boolean;
   jointDone: string[];
   streak: number | null;
+  statusId: string | null;
+  stage: Stage | null;
+  /** 1 Low .. 4 Urgent */
+  priority: number;
+  deadline: Deadline | null;
+  position: string | null;
+  blocker: { note: string; since: number } | null;
+  completedAt: number | null;
+}
+
+export type StatusKind = 'todo' | 'active' | 'blocked' | 'done';
+export interface Stage {
+  id: string;
+  name: string;
+  color: string;
+  kind: StatusKind;
+}
+export interface Status extends Stage {
+  position: number;
+  isDefault: boolean;
+  archived: boolean;
+  inUse?: number;
+}
+export interface Deadline {
+  date: string;
+  time: string | null;
 }
 
 export interface TodayView {
@@ -91,6 +117,7 @@ export interface Project {
   isShared: boolean;
   ownerId: string;
   archived: boolean;
+  deadline: Deadline | null;
   createdAt: number;
 }
 
@@ -115,6 +142,11 @@ export interface ProjectTodo {
   stats: HabitStats | null;
   photoCount: number;
   minutes: number;
+  priority: number;
+  deadline: Deadline | null;
+  position: string | null;
+  stage: Stage | null;
+  blocker: { note: string; since: number } | null;
 }
 
 export interface ProjectDetail {
@@ -124,6 +156,7 @@ export interface ProjectDetail {
   canAdd: boolean;
   progress: { done: number; total: number };
   minutesTotal: number;
+  deadlineWarnings: { todoId: string; title: string; deadline: Deadline }[];
   todos: ProjectTodo[];
 }
 
@@ -160,6 +193,8 @@ export interface Todo {
   assignedTo: string | null;
   isJoint: boolean;
   ownerId: string;
+  priority: number;
+  deadline: Deadline | null;
   suggestedBy: string | null;
   createdAt: number;
 }
@@ -223,4 +258,25 @@ export interface Comment {
   body: string;
   createdAt: number;
   mine: boolean;
+}
+
+export interface BoardCard extends DayItem {
+  columnId: string | null;
+}
+export interface Board {
+  today: string;
+  columnsOwnerId: string;
+  columns: (Status & { cardCount: number })[];
+  cards: BoardCard[];
+  canEdit: boolean;
+  project: { id: string; name: string; color: string; isShared: boolean } | null;
+}
+export interface TomorrowHabit {
+  todoId: string;
+  title: string;
+  time: string | null;
+  dueTime: string | null;
+  reminderTime: string | null;
+  recurrence: Recurrence;
+  override: { skipped: boolean; time: string | null } | null;
 }

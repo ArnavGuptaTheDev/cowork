@@ -19,6 +19,7 @@ const tabs: { id: Tab; href: string; icon: keyof typeof icons; label: string }[]
 ];
 // Desktop sidebar extras (on phones these live under Settings → More).
 const extras: { href: string; icon: keyof typeof icons; label: string }[] = [
+  { href: '/board', icon: 'grid', label: 'All work' },
   { href: '/review', icon: 'chart', label: 'Review' },
   { href: '/photos', icon: 'image', label: 'Photos' },
   { href: '/templates', icon: 'grid', label: 'Templates' },

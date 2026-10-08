@@ -4,6 +4,8 @@ import { errorMessage, get, send } from '../lib/api';
 import { percent, relativeDay } from '../lib/format';
 import type { ProjectDetail, ProjectTodo } from '../lib/types';
 import { ProjectForm } from './ProjectForm';
+import { useListControls } from './ListControls';
+import { BlockerLine, DeadlineBadge, PriorityMark, StageChip } from './marks';
 import { TodoForm } from './TodoForm';
 import { TodoSheet } from './TodoSheet';
 import { Check, Empty, ErrorBox, Icon, Loading, ProgressRing, Toasts, toast, useLoad } from './ui';
@@ -25,6 +27,7 @@ export default function ProjectIsland() {
   const state = useLoad(async () => (id ? get<ProjectDetail>(`/api/projects/${id}`) : null), [id, who]);
   const readOnly = !state.data?.canManage;
   const canAdd = !!state.data?.canAdd;
+  const lc = useListControls('project', state.data?.today ?? '');
 
   if (!params_) return <Loading />;
   if (!id) return <ErrorBox message="No project selected." />;
@@ -63,7 +66,7 @@ export default function ProjectIsland() {
     }
   };
 
-  const oneOff = d.todos.filter((t) => !t.stats);
+  const oneOff = lc.apply(d.todos.filter((t) => !t.stats));
   const repeating = d.todos.filter((t) => t.stats);
 
   return (
@@ -82,9 +85,28 @@ export default function ProjectIsland() {
           </p>
           <h1 class="page-title">{d.project.name}</h1>
           {d.project.description && <p class="lede">{d.project.description}</p>}
+          {d.project.deadline && (
+            <p class="mt-2">
+              <DeadlineBadge deadline={d.project.deadline} today={d.today} done={d.progress.total > 0 && d.progress.done === d.progress.total} />
+            </p>
+          )}
         </div>
         <ProgressRing done={d.progress.done} total={d.progress.total} />
       </header>
+      {d.deadlineWarnings.length > 0 && (
+        <div class="notice warn mb-4" role="note">
+          <strong>
+            {d.deadlineWarnings.length === 1 ? '1 todo is' : `${d.deadlineWarnings.length} todos are`} due after the project's deadline:
+          </strong>{' '}
+          {d.deadlineWarnings.map((w) => `${w.title} (${w.deadline.date.slice(5)})`).join(', ')}
+        </div>
+      )}
+      <nav class="tabs mb-4" aria-label="Project view">
+        <a href={`/project?id=${d.project.id}`} aria-current="page">
+          List
+        </a>
+        <a href={`/board?project=${d.project.id}`}>Board</a>
+      </nav>
       {d.minutesTotal > 0 && (
         <p class="faint mb-4">
           <Icon name="timer" class="inline-icon" /> {d.minutesTotal < 60 ? `${d.minutesTotal} min` : `${Math.floor(d.minutesTotal / 60)}h ${d.minutesTotal % 60}m`} tracked
@@ -124,6 +146,7 @@ export default function ProjectIsland() {
         </div>
       )}
 
+      {d.todos.some((t) => !t.stats) && <div class="mt-4">{lc.controls}</div>}
       {oneOff.length > 0 && (
         <section class="section">
           <h2 class="section-title">
@@ -134,9 +157,14 @@ export default function ProjectIsland() {
               <li key={t.todoId} class={`todo ${t.status === 'done' ? 'is-done' : ''}`} data-category={t.category}>
                 <Check checked={t.status === 'done'} label={`Mark ${t.status === 'done' ? 'not done' : 'done'}: ${t.title}`} disabled={!t.canEdit || !t.instanceId} onToggle={() => toggle(t)} />
                 <button type="button" class="todo-body" onClick={() => setOpenTodo(t)}>
-                  <div class="todo-title">{t.title}</div>
+                  <div class="todo-title">
+                    <PriorityMark value={t.priority} />
+                    {t.title}
+                  </div>
                   <div class="todo-meta">
                     <span>{relativeDay(t.startDate, d.today)}</span>
+                    {t.stage && t.stage.kind !== 'todo' && t.stage.kind !== 'done' && <StageChip stage={t.stage} />}
+                    <DeadlineBadge deadline={t.deadline} today={d.today} done={t.status === 'done'} />
                     {t.isPrivate && (
                       <span>
                         <Icon name="lock" /> Private
@@ -149,6 +177,7 @@ export default function ProjectIsland() {
                       </span>
                     )}
                   </div>
+                  {t.blocker && <BlockerLine blocker={t.blocker} />}
                 </button>
                 <span />
               </li>
@@ -191,7 +220,7 @@ export default function ProjectIsland() {
           <ProjectForm open={editing} project={d.project} onClose={() => setEditing(false)} onSaved={() => state.reload()} />
         </>
       )}
-      <TodoSheet todoId={openTodo?.todoId ?? null} instanceId={openTodo?.instanceId} onClose={() => setOpenTodo(null)} onChanged={state.reload} />
+      <TodoSheet todoId={openTodo?.todoId ?? null} instanceId={openTodo?.instanceId} stage={openTodo?.stage} onClose={() => setOpenTodo(null)} onChanged={state.reload} />
       <Toasts />
     </>
   );

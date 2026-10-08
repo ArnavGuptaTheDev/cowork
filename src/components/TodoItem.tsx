@@ -5,6 +5,7 @@ import type { DayItem } from '../lib/types';
 import { Check, Icon } from './ui';
 import { useMe } from './useMe';
 import { checkedByMe } from './useTodos';
+import { BlockerLine, DeadlineBadge, PriorityMark, StageChip } from './marks';
 
 export function TodoItem(props: {
   item: DayItem;
@@ -22,14 +23,16 @@ export function TodoItem(props: {
   const checked = checkedByMe(item, me?.user.id);
   const missed = item.status === 'missed';
   const upcoming = item.status === 'upcoming';
-  const paused = item.status === 'paused';
+  const paused = item.status === 'paused' || item.status === 'skipped';
   const recurring = item.recurrence.type !== 'none';
   const canToggle = !props.readOnly && item.canEdit && !!item.instanceId && !upcoming && !paused;
   const byPartner = done && item.completedBy && me && item.completedBy !== me.user.id && item.completedBy !== item.ownerId;
   const theirs = me && item.ownerId !== me.user.id;
   return (
     <li
-      class={`todo ${done ? 'is-done' : ''} ${missed ? 'is-missed' : ''} ${paused ? 'is-paused' : ''} ${item.isShared ? 'is-shared' : ''}`}
+      class={`todo ${done ? 'is-done' : ''} ${missed ? 'is-missed' : ''} ${paused ? 'is-paused' : ''} ${item.isShared ? 'is-shared' : ''} ${
+        item.stage?.kind === 'blocked' ? 'is-blocked' : ''
+      } ${item.deadline && !done && item.deadline.date < props.today ? 'is-overdue' : ''}`}
       data-category={item.category}
       draggable={props.draggable}
       onDragStart={
@@ -49,7 +52,10 @@ export function TodoItem(props: {
         onToggle={canToggle ? () => props.onToggle?.(item) : undefined}
       />
       <button type="button" class="todo-body" onClick={() => props.onOpen?.(item)} disabled={!props.onOpen}>
-        <div class="todo-title">{item.title}</div>
+        <div class="todo-title">
+          <PriorityMark value={item.priority} />
+          {item.title}
+        </div>
         <div class="todo-meta">
           {item.dueTime && (
             <span>
@@ -76,6 +82,8 @@ export function TodoItem(props: {
               {item.project.name}
             </span>
           )}
+          {item.stage && item.stage.kind !== 'todo' && item.stage.kind !== 'done' && <StageChip stage={item.stage} />}
+          <DeadlineBadge deadline={item.deadline} today={props.today} done={done} />
           {item.isShared && (
             <span class="chip plum">
               <Icon name="users" />
@@ -84,7 +92,7 @@ export function TodoItem(props: {
           )}
           {item.carriedOverFrom && <span class="chip clay">From {relativeDay(item.carriedOverFrom, props.today).toLowerCase()}</span>}
           {missed && <span class="chip missed">Missed</span>}
-          {paused && <span class="chip sky">Paused</span>}
+          {paused && <span class="chip sky">{item.status === 'skipped' ? 'Skipped' : 'Paused'}</span>}
           {byPartner && <span class="chip sage">✓ by {nameFor(me, item.completedBy)}</span>}
           {item.isPrivate && (
             <span>
@@ -123,6 +131,7 @@ export function TodoItem(props: {
             </span>
           )}
         </div>
+        {item.blocker && <BlockerLine blocker={item.blocker} />}
         {item.reactions.length > 0 && (
           <div class="reactions" aria-label={item.reactions.map((r) => `${nameFor(me, r.userId)} reacted ${r.emoji}`).join(', ')}>
             {item.reactions.map((r) => (

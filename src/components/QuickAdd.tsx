@@ -8,6 +8,8 @@ import { TodoForm, type TodoFormDefaults } from './TodoForm';
 import { Icon, toast } from './ui';
 import { useMe } from './useMe';
 
+const PRIORITY_LABEL: Record<number, string> = { 1: 'Low', 2: 'Medium', 3: 'High', 4: 'Urgent' };
+
 /**
  * One-line natural-language add: "gym every mon wed fri 7am #health". Shows what it understood
  * before saving, and hands over to the full form when you want more.
@@ -60,7 +62,7 @@ export function QuickAdd({ today, onSaved }: { today: string; onSaved: () => voi
         await send('POST', '/api/suggestions', d);
         toast(`Suggested to ${me!.partner!.name.split(' ')[0]}`);
       } else {
-        await send('POST', '/api/todos', { ...d, projectId: project?.id ?? null });
+        await send('POST', '/api/todos', { ...d, projectId: project?.id ?? null, ...(parsed?.priority ? { priority: parsed.priority } : {}) });
         toast('Added');
       }
       setText('');
@@ -86,6 +88,7 @@ export function QuickAdd({ today, onSaved }: { today: string; onSaved: () => voi
       ...(r?.type === 'weekly' ? { weekdays: r.weekdays } : {}),
       ...(r?.type === 'monthly' ? { monthDay: r.monthDay } : {}),
       projectId: project?.id ?? '',
+      ...(parsed?.priority ? { priority: parsed.priority } : {}),
     });
   };
 
@@ -140,6 +143,9 @@ export function QuickAdd({ today, onSaved }: { today: string; onSaved: () => voi
             </span>
           )}
           {parsed.category && <span class="chip">{parsed.category}</span>}
+          {parsed.priority && !forPartner && (
+            <span class={`chip prio-chip prio-${parsed.priority}`}>{PRIORITY_LABEL[parsed.priority]} priority</span>
+          )}
           {parsed.forPartner && <span class={`chip ${forPartner ? 'plum' : 'missed'}`}>{forPartner ? `Suggestion for ${me!.partner!.name.split(' ')[0]}` : 'Pair up to suggest'}</span>}
           <button type="button" class="btn quiet small" onClick={openFull}>
             More options

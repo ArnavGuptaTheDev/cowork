@@ -4,6 +4,7 @@ import { get, getMe } from '../lib/api';
 import { percent, shortDate, shortDay } from '../lib/format';
 import type { Me } from '../lib/types';
 import { BarChart, HBars } from './charts';
+import { since } from './marks';
 import { ErrorBox, Icon, Loading, ProgressRing, useLoad } from './ui';
 
 interface DayStat {
@@ -26,6 +27,7 @@ interface Stats {
   streaks: { title: string; current: number; best: number }[];
   minutesByDay: number[];
   minutesTotal: number;
+  blocked: { count: number; longest: { title: string; note: string; since: number } | null };
 }
 interface Review {
   weekStart: string;
@@ -52,6 +54,18 @@ function Column({ name, s, partner }: { name: string; s: Stats; partner?: boolea
         {s.done} done · {s.missed} missed{s.open ? ` · ${s.open} open` : ''}
         {s.paused ? ` · ${s.paused} paused` : ''} · <strong>{percent(s.rate)}</strong>
       </p>
+
+      {s.blocked.count > 0 && (
+        <div class="blocker-card mt-2">
+          <strong>{s.blocked.count} blocked</strong>
+          {s.blocked.longest && (
+            <span>
+              {' '}
+              · longest: {s.blocked.longest.title}, waiting on “{s.blocked.longest.note}” <span class="faint">for {since(s.blocked.longest.since)}</span>
+            </span>
+          )}
+        </div>
+      )}
 
       <h3 class="label mt-4">By day</h3>
       <BarChart
