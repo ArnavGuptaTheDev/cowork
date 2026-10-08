@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'preact/hooks';
-import { addDays } from '../../shared/time';
+import { addDays, minutesBetween, timeBefore } from '../../shared/time';
 import { errorMessage, get, send } from '../lib/api';
 import type { Category, Project, Recurrence, Todo } from '../lib/types';
 import { copy } from '../content/copy';
+import { prettyTime } from '../lib/format';
 import { PhotoButtons, uploadPhotos } from './PhotoPicker';
+import { TimeField } from './TimeField';
 import { Sheet, toast } from './ui';
 import { useMe } from './useMe';
 
@@ -16,6 +18,29 @@ const WEEKDAYS = [
   [6, 'S', 'Saturday'],
   [0, 'S', 'Sunday'],
 ] as const;
+
+// Reminder presets, in minutes before the due time.
+const REMIND_PRESETS = [
+  [0, 'At due time'],
+  [5, '5 min before'],
+  [10, '10 min before'],
+  [15, '15 min before'],
+  [30, '30 min before'],
+  [60, '1 hour before'],
+  [120, '2 hours before'],
+  [180, '3 hours before'],
+] as const;
+const DEFAULT_REMIND = 60;
+
+/** How the reminder relates to the due time: off, a preset offset, or a time of its own. */
+type RemindMode = 'none' | 'custom' | number;
+
+function remindModeFor(dueTime: string, reminderTime: string): RemindMode {
+  if (!reminderTime) return 'none';
+  if (!dueTime) return 'custom';
+  const gap = minutesBetween(reminderTime, dueTime);
+  return REMIND_PRESETS.some(([m]) => m === gap) ? gap : 'custom';
+}
 
 type Mode = 'create' | 'edit' | 'suggest';
 
@@ -86,6 +111,7 @@ export function TodoForm(props: {
 }) {
   const me = useMe();
   const [s, setS] = useState<FormState>(() => initialState(props.today, props.todo, props.defaults));
+  const [remind, setRemind] = useState<RemindMode>(() => remindModeFor(s.dueTime, s.reminderTime));
   const [projects, setProjects] = useState<Project[]>([]);
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
@@ -93,7 +119,9 @@ export function TodoForm(props: {
 
   useEffect(() => {
     if (!props.open) return;
-    setS(initialState(props.today, props.todo, props.defaults, me?.user.id));
+    const next = initialState(props.today, props.todo, props.defaults, me?.user.id);
+    setS(next);
+    setRemind(remindModeFor(next.dueTime, next.reminderTime));
     setFiles([]);
     setError(null);
     if (props.mode !== 'suggest') {
@@ -107,6 +135,36 @@ export function TodoForm(props: {
   const sharedNow = s.isShared || !!project?.isShared;
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setS((prev) => ({ ...prev, [k]: v }));
+
+  // A preset reminder follows the due time. Setting a due time for the first time turns on the default reminder.
+  const setDue = (dueTime: string) => {
+    let mode = remind;
+    if (dueTime && !s.dueTime && mode === 'none' && !s.reminderTime) mode = DEFAULT_REMIND;
+    if (!dueTime && typeof mode === 'number') mode = 'custom';
+    let reminderTime = s.reminderTime;
+    if (dueTime && typeof mode === 'number') {
+      // Too early in the day for this offset? Use the largest preset that still fits.
+      const fits = REMIND_PRESETS.filter(([m]) => m <= (mode as number) && timeBefore(dueTime, m) !== null);
+      mode = fits[fits.length - 1]![0];
+      reminderTime = timeBefore(dueTime, mode)!;
+    }
+    setRemind(mode);
+    setS((prev) => ({ ...prev, dueTime, reminderTime }));
+  };
+
+  const chooseRemind = (value: string) => {
+    if (value === 'none') {
+      setRemind('none');
+      set('reminderTime', '');
+    } else if (value === 'custom') {
+      setRemind('custom');
+      if (!s.reminderTime && s.dueTime) set('reminderTime', timeBefore(s.dueTime, DEFAULT_REMIND) ?? s.dueTime);
+    } else {
+      const m = Number(value);
+      setRemind(m);
+      set('reminderTime', timeBefore(s.dueTime, m) ?? s.dueTime);
+    }
+  };
 
   const submit = async (e: Event) => {
     e.preventDefault();
@@ -315,13 +373,34 @@ export function TodoForm(props: {
             <label class="label" for="tf-due">
               Due at
             </label>
-            <input id="tf-due" class="input" type="time" value={s.dueTime} onInput={(e) => set('dueTime', e.currentTarget.value)} />
+            <TimeField id="tf-due" value={s.dueTime} onChange={setDue} placeholder="No due time" />
           </div>
           <div class="field">
             <label class="label" for="tf-remind">
               Remind me
             </label>
-            <input id="tf-remind" class="input" type="time" value={s.reminderTime} onInput={(e) => set('reminderTime', e.currentTarget.value)} />
+            <select id="tf-remind" class="select" value={String(remind)} onChange={(e) => chooseRemind(e.currentTarget.value)}>
+              <option value="none">No reminder</option>
+              {s.dueTime &&
+                REMIND_PRESETS.map(([m, l]) => (
+                  <option key={m} value={String(m)} disabled={timeBefore(s.dueTime, m) === null}>
+                    {l}
+                  </option>
+                ))}
+              <option value="custom">Pick a time…</option>
+            </select>
+            {remind === 'custom' && (
+              <TimeField
+                id="tf-remind-at"
+                value={s.reminderTime}
+                onChange={(v) => {
+                  set('reminderTime', v);
+                  if (!v) setRemind('none');
+                }}
+                placeholder="Pick a time"
+              />
+            )}
+            {typeof remind === 'number' && s.reminderTime && <span class="hint">At {prettyTime(s.reminderTime)}</span>}
           </div>
         </div>
 

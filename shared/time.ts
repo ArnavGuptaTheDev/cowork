@@ -48,6 +48,20 @@ export function isValidTime(time: string): boolean {
   return TIME_RE.test(time);
 }
 
+/** "HH:MM" moved earlier by `minutes` on the same day, or null if that would cross midnight. */
+export function timeBefore(time: string, minutes: number): string | null {
+  const [h, m] = time.split(':').map(Number) as [number, number];
+  const t = h * 60 + m - minutes;
+  if (t < 0 || t >= 24 * 60) return null;
+  return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+}
+
+/** Minutes from `earlier` to `later` on the same day (negative if `earlier` is after `later`). */
+export function minutesBetween(earlier: string, later: string): number {
+  const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  return toMin(later) - toMin(earlier);
+}
+
 export interface ZonedParts {
   year: number;
   month: number;

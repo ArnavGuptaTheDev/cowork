@@ -680,6 +680,144 @@ textarea {
   min-height: 88px;
   resize: vertical;
 }
+
+/* Dropdowns: a themed list where the browser supports customizable select; themed options elsewhere. */
+.select option {
+  background: var(--surface-raised);
+  color: var(--ink);
+}
+@supports (appearance: base-select) {
+  .select,
+  .select::picker(select) {
+    appearance: base-select;
+  }
+  .select {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    cursor: pointer;
+  }
+  .select::picker-icon {
+    margin-left: auto;
+    color: var(--ink-faint);
+    transition: rotate var(--dur) var(--ease);
+  }
+  .select:open::picker-icon {
+    rotate: 180deg;
+  }
+  .select::picker(select) {
+    margin-block: 6px;
+    padding: 6px;
+    max-height: min(320px, 60dvh);
+    border: 1.5px solid var(--line-strong);
+    border-radius: var(--radius-m);
+    background: var(--surface-raised);
+    color: var(--ink);
+    box-shadow: var(--shadow-2);
+  }
+  .select option {
+    min-height: 40px;
+    padding: 8px 12px;
+    gap: var(--s-2);
+    border-radius: var(--radius-s);
+    background: transparent;
+    cursor: pointer;
+  }
+  .select option:hover,
+  .select option:focus-visible {
+    background: var(--paper-deep);
+    outline: none;
+  }
+  .select option:checked {
+    background: var(--clay-tint);
+    color: var(--clay-strong);
+    font-weight: 700;
+  }
+  .select option::checkmark {
+    order: 1;
+    margin-left: auto;
+  }
+  .select option:disabled {
+    color: var(--ink-faint);
+    opacity: 0.55;
+    cursor: default;
+  }
+}
+
+/* Time picker (TimeField) */
+.time-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  text-align: left;
+  cursor: pointer;
+}
+.time-field.empty span {
+  color: var(--ink-faint);
+}
+.time-field svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  color: var(--ink-faint);
+}
+.time-field[aria-expanded='true'] {
+  border-color: var(--clay);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--clay) 22%, transparent);
+}
+.time-panel {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: 248px;
+  padding: 6px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--radius-m);
+  background: var(--surface-raised);
+  color: var(--ink);
+  box-shadow: var(--shadow-2);
+}
+.tp-cols {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+.tp-col {
+  position: relative; /* offsetTop of options is measured from here when centring the selection */
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  max-height: 228px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+.tp-opt {
+  min-height: 38px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: transparent;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.tp-opt:hover {
+  background: var(--paper-deep);
+}
+.tp-opt[aria-selected='true'] {
+  background: var(--clay);
+  color: var(--on-clay);
+}
+.tp-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-2);
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
 .error-text {
   color: var(--missed);
   font-size: var(--t-s);
@@ -1310,6 +1448,46 @@ dialog.sheet::backdrop {
 }
 
 /* Landing */
+.legal {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: var(--s-8) var(--s-5) var(--s-10);
+  line-height: 1.6;
+}
+.legal h1 {
+  margin-top: var(--s-6);
+  font-size: var(--t-3xl);
+  font-weight: 600;
+}
+.legal h2 {
+  margin: var(--s-8) 0 var(--s-2);
+  font-size: var(--t-xl);
+}
+.legal h3 {
+  margin: var(--s-5) 0 var(--s-2);
+  font-size: var(--t-l);
+}
+.legal p + p,
+.legal p + ul,
+.legal ul + p {
+  margin-top: var(--s-3);
+}
+.legal ul {
+  padding-left: 1.2em;
+}
+.legal li + li {
+  margin-top: var(--s-2);
+}
+.legal code {
+  font-size: 0.9em;
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: var(--paper-deep);
+  overflow-wrap: anywhere;
+}
+.legal-links {
+  font-size: var(--t-s);
+}
 .hero {
   min-height: 100dvh;
   display: grid;

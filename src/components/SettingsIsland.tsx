@@ -3,6 +3,7 @@ import { errorMessage, get, getMe, send } from '../lib/api';
 import { relativeDay } from '../lib/format';
 import { currentSubscription, disablePush, enablePush, pushSupported } from '../lib/push';
 import type { Me } from '../lib/types';
+import { TimeField } from './TimeField';
 import { Avatar, ErrorBox, Icon, Loading, Toasts, toast, useLoad } from './ui';
 
 const COMMON_ZONES = [
@@ -218,7 +219,8 @@ function Calendar() {
     <section class="section card" id="calendar">
       <h2 class="section-title">Google Calendar</h2>
       <p class="faint">
-        One-way sync: todos with a due time appear in a separate “CoWork” calendar in your Google account. Private todos only ever go to your own calendar.
+        One-way sync: todos with a due time appear in a separate “CoWork” calendar in your Google account. Private todos only ever go to your own calendar.{' '}
+        <a href="/privacy">How we use your data</a>
       </p>
       {!s.configured ? (
         <p class="muted mt-2">Not available on this server yet.</p>
@@ -419,14 +421,12 @@ function Wrapup({ me }: { me: Me }) {
           <label class="label" for="wrapup-time">
             At
           </label>
-          <input
+          <TimeField
             id="wrapup-time"
-            class="input"
-            type="time"
             value={time}
-            onChange={(e) => {
-              setTime(e.currentTarget.value);
-              if (e.currentTarget.value) void save(true, e.currentTarget.value);
+            onChange={(v) => {
+              setTime(v);
+              if (v) void save(true, v);
             }}
           />
         </div>

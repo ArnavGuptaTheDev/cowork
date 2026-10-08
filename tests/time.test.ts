@@ -8,7 +8,9 @@ import {
   isValidTimeZone,
   localDate,
   localTime,
+  minutesBetween,
   startOfWeek,
+  timeBefore,
   weekday,
   zonedToUtc,
 } from '../shared/time';
@@ -99,5 +101,21 @@ describe('calendar helpers', () => {
     expect(isValidDate('2026-13-01')).toBe(false);
     expect(isValidTimeZone('Asia/Kolkata')).toBe(true);
     expect(isValidTimeZone('Mars/Olympus_Mons')).toBe(false);
+  });
+});
+
+describe('timeBefore / minutesBetween: reminder offsets', () => {
+  it('moves a time earlier on the same day', () => {
+    expect(timeBefore('09:30', 60)).toBe('08:30');
+    expect(timeBefore('10:05', 10)).toBe('09:55');
+    expect(timeBefore('09:30', 0)).toBe('09:30');
+  });
+  it('refuses to cross midnight', () => {
+    expect(timeBefore('00:30', 60)).toBeNull();
+    expect(timeBefore('01:00', 60)).toBe('00:00');
+  });
+  it('measures the gap between two times', () => {
+    expect(minutesBetween('08:30', '09:30')).toBe(60);
+    expect(minutesBetween('10:00', '09:00')).toBe(-60);
   });
 });

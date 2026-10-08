@@ -13,6 +13,11 @@ export const copy = {
       google: "We couldn't verify your Google account. Please try again.",
     } as Record<string, string>,
   },
+  privacy: {
+    // Shown on /privacy as the contact for privacy questions and deletion requests. Set before publishing.
+    contactEmail: 'REPLACE_WITH_CONTACT_EMAIL',
+    effective: '8 October 2026',
+  },
   notInvited: {
     title: 'You\'re not on the list (yet)',
     body: 'CoWork is private and invite-only. Your Google account signed in fine, but this email hasn\'t been invited. No account was created.',
