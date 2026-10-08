@@ -15,7 +15,7 @@ export const copy = {
   },
   privacy: {
     // Shown on /privacy as the contact for privacy questions and deletion requests. Set before publishing.
-    contactEmail: 'REPLACE_WITH_CONTACT_EMAIL',
+    contactEmail: 'clusterwithgigs@gmial.com',
     effective: '8 October 2026',
   },
   notInvited: {
