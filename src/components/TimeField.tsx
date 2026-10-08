@@ -115,7 +115,7 @@ export function TimeField(props: { id: string; value: string; onChange: (v: stri
         ref={btn}
         id={props.id}
         type="button"
-        class={`input time-field ${current ? '' : 'empty'}`}
+        class={`input time-field ${current ? '' : 'is-unset'}`}
         aria-haspopup="dialog"
         aria-expanded={open}
         onPointerDown={() => (wasOpen.current = open)}

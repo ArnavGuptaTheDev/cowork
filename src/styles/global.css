@@ -621,6 +621,7 @@ textarea {
 
 .field {
   display: grid;
+  align-content: start; /* a taller neighbour in a .field-row mustn't stretch these controls */
   gap: 6px;
 }
 .field + .field,
@@ -753,7 +754,7 @@ textarea {
   text-align: left;
   cursor: pointer;
 }
-.time-field.empty span {
+.time-field.is-unset span {
   color: var(--ink-faint);
 }
 .time-field svg {
@@ -791,8 +792,13 @@ textarea {
   max-height: 228px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-width: none;
+  /* Fade the ends so it reads as a scrolling wheel without a scrollbar */
+  mask-image: linear-gradient(transparent, #000 18px, #000 calc(100% - 18px), transparent);
+  padding-block: 10px;
+}
+.tp-col::-webkit-scrollbar {
+  display: none;
 }
 .tp-opt {
   min-height: 38px;
@@ -805,6 +811,10 @@ textarea {
 }
 .tp-opt:hover {
   background: var(--paper-deep);
+}
+.tp-opt[data-at='true'] {
+  background: var(--clay-tint);
+  color: var(--clay-strong);
 }
 .tp-opt[aria-selected='true'] {
   background: var(--clay);
